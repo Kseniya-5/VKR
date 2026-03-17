@@ -3,8 +3,9 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 
 RUN pip install --no-cache-dir uv
-COPY pyproject.toml .
-RUN uv pip install --system --no-cache-dir --compile-bytecode -e .
+COPY pyproject.toml uv.lock README.md ./
+
+RUN uv pip install --system --no-cache-dir --compile-bytecode .
 
 FROM python:3.12-slim
 

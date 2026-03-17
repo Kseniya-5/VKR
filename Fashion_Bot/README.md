@@ -24,12 +24,26 @@
    cd VKR/Fashion_Bot
    ```
 
-2. Соберите Docker-образ:
+2. Соберите Docker-образ для linux:
    ```bash
-   docker build -t fashion-bot .
+   sudo docker build -t fashion-bot .
    ```
 
 3. Запустите контейнер:
    ```bash
-   docker run -d -p 8000:8000 fashion-bot
+   sudo docker run -d --env-file .env --name my-fashion-bot fashion-bot
    ```
+
+4. Проверь логи
+   ```bash
+   sudo docker logs my-fashion-bot
+   ```
+   
+### Если нужно пересобрать Docker-образ
+
+5. Удали старый контейнер
+   ```bash
+   sudo docker rm my-fashion-bot
+   ```
+
+6. Повтори пункты 2-4.

@@ -72,6 +72,9 @@
     ```bash
    sudo docker-compose ps
    ```
+<img width="1110" height="165" alt="image" src="https://github.com/user-attachments/assets/10b26700-de0c-4466-9232-c81bb3e371f9" />
+
+    
 4. Логи всех сервисов (полезно для поиска ошибок)
     ```bash
    sudo docker-compose logs -f

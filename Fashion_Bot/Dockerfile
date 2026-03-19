@@ -21,4 +21,5 @@ COPY --chown=appuser:appuser . .
 ENV PYTHONUNBUFFERED=1
 
 RUN chmod +x entrypoint.sh
-CMD ["./entrypoint.sh"]
+
+ENTRYPOINT ["./entrypoint.sh"]

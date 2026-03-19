@@ -5,7 +5,8 @@ services:
     build: .
     container_name: tg-bot
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
@@ -26,6 +27,12 @@ services:
       - redis-data:/data
     networks:
       - network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
 volumes:
   redis-data:

@@ -19,4 +19,6 @@ COPY --from=builder --chown=appuser:appuser /usr/local /usr/local
 COPY --chown=appuser:appuser . .
 
 ENV PYTHONUNBUFFERED=1
-CMD ["python", "-c", "import os; assert os.getenv('BOT_TOKEN'), 'Ошибка: BOT_TOKEN не установлен!'; exec(open('bot.py').read())"]
+
+RUN chmod +x entrypoint.sh
+CMD ["./entrypoint.sh"]

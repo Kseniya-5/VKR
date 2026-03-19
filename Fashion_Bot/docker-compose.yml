@@ -1,16 +1,20 @@
 version: "3.9"
 
 services:
+  # 1. Telegram-бот (отправляет задачи в очередь)
   telegram-bot:
     build: .
     container_name: tg-bot
     depends_on:
       redis:
         condition: service_healthy
+      db:
+        condition: service_healthy
     restart: unless-stopped
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://fashion_user:fashion_pass@db:5432/fashion_db
     ports:
       - "8081:8080"
     volumes:
@@ -18,11 +22,33 @@ services:
     networks:
       - network
 
+  # 2. Воркер для обработки долгих задач (обучение/инференс)
+  worker:
+    build: .
+    container_name: tg-worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["celery", "-A", "tasks", "--loglevel=info"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://fashion_user:fashion_pass@db:5432/fashion_db
+    volumes:
+      - ./data:/app/data
+    networks:
+      - network
+
+  # 3. Брокер сообщений для Celery
   redis:
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
     volumes:
       - redis-data:/data
     networks:
@@ -34,8 +60,31 @@ services:
       retries: 5
       start_period: 5s
 
+  # 4. База данных для сохранения статусов обучения моделей
+  db:
+    image: postgres:15-alpine
+    container_name: fashion_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fashion_user
+      POSTGRES_PASSWORD: fashion_pass
+      POSTGRES_DB: fashion_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fashion_user -d fashion_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
 volumes:
   redis-data:
+  pg-data:
 
 networks:
   network:

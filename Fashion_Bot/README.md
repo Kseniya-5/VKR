@@ -88,5 +88,18 @@
    sudo docker-compose down
    ```
 
+### Жесткий перезапуск Docker
+1. Если не помогло ...
+   ```bash
+   sudo systemctl restart snap.docker.dockerd.service
+   ```
+2. Очистка старых зависших контейнеров
+   ```bash
+   sudo docker-compose down
+   ```
+3.  Запуск с новыми настройками
+   ```bash
+   sudo docker-compose up -d
+   ```
 
    

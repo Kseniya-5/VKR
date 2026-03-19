@@ -11,10 +11,9 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
-    environment:
-      - BOT_TOKEN=${BOT_TOKEN}
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://fashion_user:fashion_pass@db:5432/fashion_db
+    # Используем файл .env для передачи всех переменных разом
+    env_file:
+      - .env
     ports:
       - "8081:8080"
     volumes:
@@ -32,10 +31,9 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
-    command: ["celery", "-A", "tasks", "--loglevel=info"]
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://fashion_user:fashion_pass@db:5432/fashion_db
+    command: ["celery", "-A", "tasks", "worker", "--loglevel=info"]
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
     networks:
@@ -66,9 +64,9 @@ services:
     container_name: fashion_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: fashion_user
-      POSTGRES_PASSWORD: fashion_pass
-      POSTGRES_DB: fashion_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5433:5432"
     volumes:
@@ -76,7 +74,7 @@ services:
     networks:
       - network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fashion_user -d fashion_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5

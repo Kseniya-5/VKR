@@ -53,19 +53,19 @@
    sudo docker run -d --env-file .env --name my-fashion-bot fashion-bot
    ```
 
-5. Провер логи
+5. Проверка логов
    ```bash
    sudo docker logs my-fashion-bot
    ```
    
 ### Если нужно пересобрать Docker-образ
 
-6. Удали старый контейнер
+6. Удалите старый контейнер
    ```bash
    sudo docker rm my-fashion-bot
    ```
 
-7. Повтори пункты 3-5.
+7. Повторите пункты 3-5.
 
 ### Запуск через Docker Compose
 1. Убедитесь, что находитесь в папке проекта и файл .env создан
@@ -73,19 +73,17 @@
    ```bash
    sudo docker-compose up --build -d
    ```
-
-3. Проверка статусов контейнеров
+3. Проверьте статус контейнеров
     ```bash
    sudo docker-compose ps
    ```
 <img width="1110" height="165" alt="image" src="https://github.com/user-attachments/assets/10b26700-de0c-4466-9232-c81bb3e371f9" />
-
     
 4. Логи всех сервисов (полезно для поиска ошибок)
     ```bash
    sudo docker-compose logs -f
    ```
-5. Остановка проекта
+5. Остановите проект
     ```bash
    sudo docker-compose down
    ```

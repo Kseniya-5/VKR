@@ -26,6 +26,7 @@
 > &nbsp;&nbsp;├── `bot.py` — Точка входа бота: инициализация диспетчера, запуск поллинга/вебхуков\
 > &nbsp;&nbsp;├── `config.py` —  Настройки приложения: токен бота, параметры подключения к БД, конфигурация логгера\
 > &nbsp;&nbsp;├── `docker-compose.yml` —  Файл с описанием сервисов (бот и Redis)\
+> &nbsp;&nbsp;├── `entrypoint.sh` —  Скрипт проверки переменных и запуска бота\
 > &nbsp;&nbsp;├── `handlers.py` —  Обработчики команд и сообщений пользователя\
 > &nbsp;&nbsp;├── `middlewares.py` —  Промежуточное ПО: троттлинг, логирование запросов, обработка ошибок\
 > &nbsp;&nbsp;├── `pyproject.toml` —  Управление зависимостями и метаданными проекта (Poetry)\
@@ -34,48 +35,46 @@
 
 
 ## Настройка и запуск
-### Шаг 1: Docker-образ
+### Запуск через чистый Docker
 1. Склонируйте репозиторий:
    ```bash
    git clone https://github.com/Kseniya-5/VKR.git
    cd VKR/Fashion_Bot
    ```
-
-2. Соберите Docker-образ для linux:
+2. Убедитесь, что создали файл .env
+   
+3. Соберите Docker-образ для linux:
    ```bash
    sudo docker build -t fashion-bot .
    ```
 
-3. Запустите контейнер:
+4. Запустите контейнер:
    ```bash
    sudo docker run -d --env-file .env --name my-fashion-bot fashion-bot
    ```
 
-4. Проверь логи
+5. Провер логи
    ```bash
    sudo docker logs my-fashion-bot
    ```
    
 ### Если нужно пересобрать Docker-образ
 
-5. Удали старый контейнер
+6. Удали старый контейнер
    ```bash
    sudo docker rm my-fashion-bot
    ```
 
-6. Повтори пункты 2-4.
+7. Повтори пункты 3-5.
 
-### Шаг 2: запускаем Docker Compose
-1. Создайте файл `.env` в корне проекта:
-   ```env
-   BOT_TOKEN=ваш_токен_из_BotFather
-   ```
-2. Собираем образ бота
+### Запуск через Docker Compose
+1. Убедитесь, что находитесь в папке проекта и файл .env создан
+2. Поднимите окружение
    ```bash
    sudo docker-compose up --build -d
    ```
 
-3. Проверка работы
+3. Проверка статусов контейнеров
     ```bash
    sudo docker-compose ps
    ```

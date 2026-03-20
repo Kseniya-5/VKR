@@ -53,15 +53,22 @@
    sudo docker run -d --env-file .env --name my-fashion-bot fashion-bot
    ```
 
+<<<<<<< checkpoint_2_ks
 5. Проверка логов
    ```bash
    sudo docker logs my-fashion-bot
+=======
+2. Соберите Docker-образ для linux:
+   ```bash
+   sudo docker build -t fashion-bot .
+>>>>>>> main
    ```
    
 ### Если нужно пересобрать Docker-образ
 
 6. Удалите старый контейнер
    ```bash
+<<<<<<< checkpoint_2_ks
    sudo docker rm my-fashion-bot
    ```
 
@@ -90,3 +97,21 @@
 
 
    
+=======
+   sudo docker run -d --env-file .env --name my-fashion-bot fashion-bot
+   ```
+
+4. Проверь логи
+   ```bash
+   sudo docker logs my-fashion-bot
+   ```
+   
+### Если нужно пересобрать Docker-образ
+
+5. Удали старый контейнер
+   ```bash
+   sudo docker rm my-fashion-bot
+   ```
+
+6. Повтори пункты 2-4.
+>>>>>>> main

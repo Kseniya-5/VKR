@@ -11,3 +11,4 @@ uv.lock
 poetry.lock
 .idea/
 .vscode/
+../.idea/

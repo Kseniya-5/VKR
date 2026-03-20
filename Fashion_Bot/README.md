@@ -30,6 +30,7 @@
 > &nbsp;&nbsp;├── `handlers.py` —  Обработчики команд и сообщений пользователя\
 > &nbsp;&nbsp;├── `middlewares.py` —  Промежуточное ПО: троттлинг, логирование запросов, обработка ошибок\
 > &nbsp;&nbsp;├── `pyproject.toml` —  Управление зависимостями и метаданными проекта (Poetry)\
+> &nbsp;&nbsp;├── `task.py` —  Celery-воркер: логика долгих задач и обновление статусов в БД\
 > &nbsp;&nbsp;└── `uv.lock` —  Фиксированные версии зависимостей (uv package manager)
 
 
@@ -91,7 +92,7 @@
 ### Жесткий перезапуск Docker
 1. Если не помогло ...
    ```bash
-   sudo systemctl restart snap.docker.dockerd.service
+   sudo reboot
    ```
 2. Очистка старых зависших контейнеров
    ```bash
@@ -99,7 +100,18 @@
    ```
 3.  Запуск с новыми настройками
    ```bash
-   sudo docker-compose up -d
+   sudo docker-compose up --build -d
    ```
+
+## Проверка асинхронной работы
+1. После успешного запуска через docker-compose и проверки запуска контейнеров в терминале можно увидеть следующее:
+<img width="2031" height="168" alt="image" src="https://github.com/user-attachments/assets/a3cd2651-9968-4544-b7b4-66e253d55888" />
+
+2. После этого Вы можете проверить работу очереди задач в Telegram (мой бот @FashionableSelectionBot):
+<img width="1460" height="997" alt="image" src="https://github.com/user-attachments/assets/fd4ae74f-82c6-492a-9f48-f11c77eebbcc" />
+
+3. И эти данные добавились в таблицу model_tasks моей БД
+<img width="1482" height="188" alt="image" src="https://github.com/user-attachments/assets/d7de4ab6-23c5-43f1-b02c-e228d2154c66" />
+
 
    

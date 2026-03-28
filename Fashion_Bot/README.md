@@ -42,6 +42,7 @@
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bot.yaml` — Deployment и Service для Telegram-бота \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `configmap.yaml` — Открытые переменные окружения для кластера \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bd-init-configmap.yaml` — ConfigMap со скриптом инициализации БД \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `migration-job.yaml` — Job для одноразового запуска SQL-миграций до старта приложения \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `nginx.yaml` — Deployment и NodePort Service для Nginx \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `postgres.yaml` — Deployment и Service для базы данных PostgreSQL \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `redis.yaml` — Deployment и Service для брокера сообщений \
@@ -49,17 +50,20 @@
 > &nbsp;&nbsp;│── `nginx/` — Папка с конфигурацией Nginx сервера \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `Dockerfile` — Сборка образа Nginx \
 > &nbsp;&nbsp;│ &nbsp;&nbsp;└── `nginx.conf` — Настройки Reverse proxy и отдачи статики \
+>  &nbsp;&nbsp;├── `.dockerignore` — Файлы и папки, исключаемые из контекста сборки Docker-образа  \
 > &nbsp;&nbsp;├── `.gitignore` — Игнорируемые файлы \
 > &nbsp;&nbsp;├── `Dockerfile` — Конфигурация Docker-образа для контейнеризации приложения \
 > &nbsp;&nbsp;├── `README.md` — Документация проекта \
 > &nbsp;&nbsp;├── `bot.py` — Точка входа бота: инициализация диспетчера, запуск поллинга/вебхуков\
 > &nbsp;&nbsp;├── `config.py` —  Настройки приложения: токен бота, параметры подключения к БД, конфигурация логгера\
+> &nbsp;&nbsp;├── `deploy.sh` —  Bash-скрипт для автоматической сборки образов, генерации секретов и деплоя в k8s !!! \
 > &nbsp;&nbsp;├── `docker-compose.yml` —  Файл с описанием сервисов (бот и Redis)\
 > &nbsp;&nbsp;├── `entrypoint.sh` —  Скрипт проверки переменных и запуска бота\
 > &nbsp;&nbsp;├── `handlers.py` —  Обработчики команд и сообщений пользователя\
 > &nbsp;&nbsp;├── `init.sql` —  Скрипт создания таблиц в базе данных при первом запуске\
 > &nbsp;&nbsp;├── `middlewares.py` —  Промежуточное ПО: троттлинг, логирование запросов, обработка ошибок\
 > &nbsp;&nbsp;├── `pyproject.toml` —  Управление зависимостями и метаданными проекта (Poetry)\
+> &nbsp;&nbsp;├── `stop.sh` —  Bash-скрипт для быстрой очистки кластера от подов, сервисов и секретов проекта !!! \
 > &nbsp;&nbsp;├── `task.py` —  Celery-воркер: логика долгих задач и обновление статусов в БД\
 > &nbsp;&nbsp;├── `uv.lock` —  Фиксированные версии зависимостей (uv package manager)\
 > &nbsp;&nbsp;└── `web_app.py` —  Простой aiohttp веб-сервер для связи с Nginx (Production mode)

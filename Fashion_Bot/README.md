@@ -38,6 +38,14 @@
 
 ## Структура проекта
 > `Fashion_Bot/` \
+> &nbsp;&nbsp;│── `k8s/` — ... \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bot.yaml` — ... \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `configmap.yaml` — ... \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bd-init-configmap.yaml` — ... \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `nginx.yaml` — ... \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `postgres.yaml` — ... \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `redis.yaml` — ... \
+> &nbsp;&nbsp;│ &nbsp;&nbsp;└── `worker.yaml` — ... \
 > &nbsp;&nbsp;│── `nginx/` — Папка с конфигурацией Nginx сервера \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `Dockerfile` — Сборка образа Nginx \
 > &nbsp;&nbsp;│ &nbsp;&nbsp;└── `nginx.conf` — Настройки Reverse proxy и отдачи статики \
@@ -49,13 +57,14 @@
 > &nbsp;&nbsp;├── `docker-compose.yml` —  Файл с описанием сервисов (бот и Redis)\
 > &nbsp;&nbsp;├── `entrypoint.sh` —  Скрипт проверки переменных и запуска бота\
 > &nbsp;&nbsp;├── `handlers.py` —  Обработчики команд и сообщений пользователя\
+> &nbsp;&nbsp;├── `init.sql` —  ...\
 > &nbsp;&nbsp;├── `middlewares.py` —  Промежуточное ПО: троттлинг, логирование запросов, обработка ошибок\
 > &nbsp;&nbsp;├── `pyproject.toml` —  Управление зависимостями и метаданными проекта (Poetry)\
 > &nbsp;&nbsp;├── `task.py` —  Celery-воркер: логика долгих задач и обновление статусов в БД\
 > &nbsp;&nbsp;├── `uv.lock` —  Фиксированные версии зависимостей (uv package manager)\
 > &nbsp;&nbsp;└── `web_app.py` —  Простой aiohttp веб-сервер для связи с Nginx (Production mode)
 
-
+***
 
 ## Настройка и запуск
 ### 1. Запуск через чистый Docker
@@ -89,6 +98,8 @@
    ```
 
 7. Повторите пункты 3-5.
+
+***
 
 ### 2. Запуск через Docker Compose (Полное Production окружение)
 Этот способ поднимает всю архитектуру: бота, веб-сервер, Nginx (Reverse Proxy), Redis, БД и Celery-воркер.
@@ -125,6 +136,83 @@
    ```bash
    sudo docker-compose up --build -d
    ```
+***
+
+### 3. Запуск проекта через Kubernetes (Полное Production окружение)
+Проект полностью адаптирован для работы в Kubernetes-кластере с использованием `Minikube`. Все манифесты находятся в директории `k8s/`
+1. Поскольку Minikube работает в изолированной среде, необходимо собрать Docker-образ непосредственно внутри его окружения:
+```bash
+# 1. Запускаем локальный кластер
+minikube start
+
+# 2. Переключаем Docker-окружение терминала на Minikube
+eval $(minikube docker-env)
+
+# 3. Собираем образ бота
+docker build -t fashion-bot:latest .
+```
+2. Чтобы не хранить токены и пароли в открытых yaml-манифестах, создаем секреты напрямую из файла `.env`:
+```bash
+kubectl create secret generic fashion-secrets --from-env-file=.env
+```
+3. Применяем все подготовленные манифесты (Deployment, Service, ConfigMap) из папки `k8s/`:
+```bash
+kubectl apply -f k8s/
+```
+4. Убедитесь, что все компоненты (поды) перешли в статус `Running`. Это может занять около 1-2 минут (при первом запуске скачиваются образы БД и Redis):
+
+```bash
+# Проверка статуса подов
+kubectl get pods
+```
+<img width="807" height="199" alt="image" src="https://github.com/user-attachments/assets/b02c1f66-8f74-4b89-98a6-5998d699c6a2" /> <br/>
+```bash
+# Проверка созданных сервисов
+kubectl get services
+```
+<img width="952" height="197" alt="image" src="https://github.com/user-attachments/assets/d71c392d-597e-4362-8187-4c25e3f25a87" /> <br/>
+
+
+5. Если нужно проверить логи конкретного компонента:
+```bash
+# Логи Telegram-бота
+kubectl logs deployment/telegram-bot
+
+# Логи Celery-воркера
+kubectl logs deployment/worker
+
+# Логи базы данных
+kubectl logs deployment/db
+```
+6. Nginx доступен извне кластера через сервис типа `NodePort`. Чтобы получить прямую ссылку для открытия в браузере, выполните:
+```bash
+minikube service nginx-service --url
+```
+#### Управление кластером (Остановка и Перезапуск)
+7. Если вы хотите поставить кластер на паузу, сохранив все данные и поды:
+```bash
+minikube stop
+```
+8. Если вы внесли изменения в код бота (файлы `.py`):
+```bash
+# 1. Обязательно убедитесь, что вы в окружении Minikube
+eval $(minikube docker-env)
+
+# 2. Соберите новый образ
+docker build -t fashion-bot:latest .
+
+# 3. Перезапустите поды, чтобы они подхватили новую версию
+kubectl rollout restart deployment telegram-bot worker
+```
+9. Если нужно удалить все ресурсы (поды, сервисы, секреты), созданные для проекта:
+```bash
+# Удаляем ресурсы по манифестам
+kubectl delete -f k8s/
+
+# Удаляем созданный вручную секрет
+kubectl delete secret fashion-secrets
+```
+***
 
 # Проверка работоспособности
 ## Проверка асинхронной очереди задач (Celery + Redis + DB)

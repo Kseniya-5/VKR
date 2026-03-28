@@ -17,6 +17,14 @@ spec:
           image: nginx:alpine
           ports:
             - containerPort: 80
+          volumeMounts:
+            - name: nginx-conf-volume
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-conf-volume
+          configMap:
+            name: nginx-config
 ---
 apiVersion: v1
 kind: Service

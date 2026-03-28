@@ -1,14 +1,16 @@
 # Fashion Bot Project
 
+### Автор: Балицкая Ксения
+
 ## Обзор
 Этот репозиторий содержит реализацию проекта Fashion Bot в рамках курсовой работы. Проект настроен для запуска в изолированной Docker-среде, что обеспечивает согласованное выполнение на различных системах.
 
 ## Требования
 - Docker 20.10+
 - Docker Compose v2+
-- Аккаунт Telegram и созданный бот через [BotFather][web:13]
+- Аккаунт Telegram и созданный бот через BotFather
+- Обеспечить сетевой доступ к Telegram
 
-> Вам нужен токен бота `BOT_TOKEN`, который выдаёт BotFather.[web:13]
 
 ## Подготовка окружения (Важно!)
 Перед запуском любым из способов необходимо создать файл с переменными окружения:
@@ -18,8 +20,15 @@
    BOT_TOKEN=ваш_токен_из_BotFather
    ```
 
+## Как получить токен бота
+1. Свяжитесь с @BotFather
+2. Выполните команду /newbot и следуйте инструкциям, пока вам не будет выдан новый токен
+
 ## Структура проекта
-> `Fashion_Bot/`  
+> `Fashion_Bot/` \
+> &nbsp;&nbsp;│── `nginx/` — Папка с конфигурацией Nginx сервера \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `Dockerfile` — Сборка образа Nginx \
+> &nbsp;&nbsp;│ &nbsp;&nbsp;└── `nginx.conf` — Настройки Reverse proxy и отдачи статики \
 > &nbsp;&nbsp;├── `.gitignore` — Игнорируемые файлы \
 > &nbsp;&nbsp;├── `Dockerfile` — Конфигурация Docker-образа для контейнеризации приложения \
 > &nbsp;&nbsp;├── `README.md` — Документация проекта \
@@ -31,12 +40,13 @@
 > &nbsp;&nbsp;├── `middlewares.py` —  Промежуточное ПО: троттлинг, логирование запросов, обработка ошибок\
 > &nbsp;&nbsp;├── `pyproject.toml` —  Управление зависимостями и метаданными проекта (Poetry)\
 > &nbsp;&nbsp;├── `task.py` —  Celery-воркер: логика долгих задач и обновление статусов в БД\
-> &nbsp;&nbsp;└── `uv.lock` —  Фиксированные версии зависимостей (uv package manager)
+> &nbsp;&nbsp;├── `uv.lock` —  Фиксированные версии зависимостей (uv package manager)\
+> &nbsp;&nbsp;└── `web_app.py` —  Простой aiohttp веб-сервер для связи с Nginx (Production mode)
 
 
 
 ## Настройка и запуск
-### Запуск через чистый Docker
+### 1. Запуск через чистый Docker
 1. Склонируйте репозиторий:
    ```bash
    git clone https://github.com/Kseniya-5/VKR.git
@@ -75,7 +85,8 @@
 
 7. Повторите пункты 3-5.
 
-### Запуск через Docker Compose
+### 2. Запуск через Docker Compose (Полное Production окружение)
+Этот способ поднимает всю архитектуру: бота, веб-сервер, Nginx (Reverse Proxy), Redis, БД и Celery-воркер.
 1. Убедитесь, что находитесь в папке проекта и файл .env создан
 2. Поднимите окружение
    ```bash
@@ -110,15 +121,22 @@
    sudo docker-compose up --build -d
    ```
 
-## Проверка асинхронной работы
+# Проверка работоспособности
+## Проверка асинхронной очереди задач (Celery + Redis + DB)
 1. После успешного запуска через docker-compose и проверки запуска контейнеров в терминале можно увидеть следующее:
 <img width="2031" height="168" alt="image" src="https://github.com/user-attachments/assets/a3cd2651-9968-4544-b7b4-66e253d55888" />
 
-2. После этого Вы можете проверить работу очереди задач в Telegram (мой бот @FashionableSelectionBot):
+2. После этого Вы можете проверить работу очереди задач в Telegram (мой бот @FashionableSelectionBot). Задачи принимаются моментально, а их выполнение и изменение статусов происходит в фоновом режиме:
 <img width="1460" height="997" alt="image" src="https://github.com/user-attachments/assets/fd4ae74f-82c6-492a-9f48-f11c77eebbcc" />
 
-3. И эти данные добавились в таблицу model_tasks моей БД
+3. Все изменения статусов надежно сохраняются в базу данных PostgreSQL (model_tasks):
 <img width="1482" height="188" alt="image" src="https://github.com/user-attachments/assets/d7de4ab6-23c5-43f1-b02c-e228d2154c66" />
+
+## Проверка Nginx (Reverse Proxy и статика)
+Приложение работает в режиме Production (DEBUG=False).
+1. После успешного запуска через docker-compose и проверки запуска контейнеров в терминале можно увидеть следующее: <br/> <img width="1280" height="125" alt="image" src="https://github.com/user-attachments/assets/314573e9-67e0-49cd-94ac-43a905dbb3cf" />
+2. Откройте браузер и перейдите по адресу <mark> http://localhost:8888 </mark> — Nginx успешно проксирует запрос к приложению и возвращает ответ от веб-сервера бота <br/> <img width="689" height="97" alt="image" src="https://github.com/user-attachments/assets/aa550deb-118a-44a8-9de3-6eb5d7fe1520" />
+
 
 
    

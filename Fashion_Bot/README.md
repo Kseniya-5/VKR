@@ -38,14 +38,14 @@
 
 ## Структура проекта
 > `Fashion_Bot/` \
-> &nbsp;&nbsp;│── `k8s/` — ... \
-> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bot.yaml` — ... \
-> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `configmap.yaml` — ... \
-> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bd-init-configmap.yaml` — ... \
-> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `nginx.yaml` — ... \
-> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `postgres.yaml` — ... \
-> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `redis.yaml` — ... \
-> &nbsp;&nbsp;│ &nbsp;&nbsp;└── `worker.yaml` — ... \
+> &nbsp;&nbsp;│── `k8s/` — Папка с манифестами для развертывания в Kubernetes \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bot.yaml` — Deployment и Service для Telegram-бота \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `configmap.yaml` — Открытые переменные окружения для кластера \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `bd-init-configmap.yaml` — ConfigMap со скриптом инициализации БД \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `nginx.yaml` — Deployment и NodePort Service для Nginx \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `postgres.yaml` — Deployment и Service для базы данных PostgreSQL \
+> &nbsp;&nbsp;│&nbsp;&nbsp; ├── `redis.yaml` — Deployment и Service для брокера сообщений \
+> &nbsp;&nbsp;│ &nbsp;&nbsp;└── `worker.yaml` — Deployment для фоновых задач Celery \
 > &nbsp;&nbsp;│── `nginx/` — Папка с конфигурацией Nginx сервера \
 > &nbsp;&nbsp;│&nbsp;&nbsp; ├── `Dockerfile` — Сборка образа Nginx \
 > &nbsp;&nbsp;│ &nbsp;&nbsp;└── `nginx.conf` — Настройки Reverse proxy и отдачи статики \
@@ -57,7 +57,7 @@
 > &nbsp;&nbsp;├── `docker-compose.yml` —  Файл с описанием сервисов (бот и Redis)\
 > &nbsp;&nbsp;├── `entrypoint.sh` —  Скрипт проверки переменных и запуска бота\
 > &nbsp;&nbsp;├── `handlers.py` —  Обработчики команд и сообщений пользователя\
-> &nbsp;&nbsp;├── `init.sql` —  ...\
+> &nbsp;&nbsp;├── `init.sql` —  Скрипт создания таблиц в базе данных при первом запуске\
 > &nbsp;&nbsp;├── `middlewares.py` —  Промежуточное ПО: троттлинг, логирование запросов, обработка ошибок\
 > &nbsp;&nbsp;├── `pyproject.toml` —  Управление зависимостями и метаданными проекта (Poetry)\
 > &nbsp;&nbsp;├── `task.py` —  Celery-воркер: логика долгих задач и обновление статусов в БД\
@@ -151,9 +151,13 @@ eval $(minikube docker-env)
 # 3. Собираем образ бота
 docker build -t fashion-bot:latest .
 ```
-2. Чтобы не хранить токены и пароли в открытых yaml-манифестах, создаем секреты напрямую из файла `.env`:
+2. Чтобы не хранить токены и пароли в открытых yaml-манифестах, мы создаем секрет из файла `.env`. Также необходимо создать конфиг для Nginx из локального файла. Выполните эти команды в корне проекта перед деплоем:
 ```bash
+# Создаем секрет с переменными окружения из .env
 kubectl create secret generic fashion-secrets --from-env-file=.env
+
+# Создаем ConfigMap для передачи файла конфигурации Nginx внутрь пода
+kubectl create configmap nginx-config --from-file=nginx/nginx.conf
 ```
 3. Применяем все подготовленные манифесты (Deployment, Service, ConfigMap) из папки `k8s/`:
 ```bash

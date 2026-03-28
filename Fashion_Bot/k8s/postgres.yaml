@@ -22,6 +22,14 @@ spec:
                 name: fashion-config
             - secretRef:
                 name: fashion-secrets
+          volumeMounts:
+            - name: init-sql-volume
+              mountPath: /docker-entrypoint-initdb.d/init.sql
+              subPath: init.sql
+      volumes:
+        - name: init-sql-volume
+          configMap:
+            name: db-init-script
 ---
 apiVersion: v1
 kind: Service

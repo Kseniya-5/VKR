@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telegram-bot
+  template:
+    metadata:
+      labels:
+        app: telegram-bot
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: bot
+          image: ghcr.io/kseniya-5/fashion-bot:v1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: fashion-config
+            - secretRef:
+                name: fashion-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telegram-bot
+spec:
+  selector:
+    app: telegram-bot
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080

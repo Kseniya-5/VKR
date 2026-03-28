@@ -17,19 +17,28 @@
 1. Создайте файл `.env` в корне проекта (`VKR/Fashion_Bot/.env`).
 2. Скопируйте в него следующие настройки и замените значение `BOT_TOKEN` на ваш токен от @BotFather:
    ```env
-   # Токен вашего Telegram-бота (ОБЯЗАТЕЛЬНО ЗАМЕНИТЬ)
-   BOT_TOKEN=ваш_токен_из_BotFather
+   # Токен вашего Telegram-бота (ОБЯЗАТЕЛЬНО ЗАМЕНИТЬ НА СВОЙ)
+   BOT_TOKEN=8206947454:AAFy1KkyDQcd5NVAYZKI7-R1sXrQTka--tE
    
-   # Настройки для брокера сообщений Celery (оставить по умолчанию для docker-compose)
+   # Оставить по умолчанию для работы внутри кластера
    REDIS_URL=redis://redis:6379/0
    
-   # Учетные данные для базы данных PostgreSQL (задайте свои значения)
-   POSTGRES_USER=ваш_пользователь_БД
-   POSTGRES_PASSWORD=ваш_пароль_БД
-   POSTGRES_DB=название_вашей_БД
+   # Учетные данные для базы данных
+   POSTGRES_USER=fashion_user
+   POSTGRES_PASSWORD=fashion_pass
+   POSTGRES_DB=fashion_db
    
    # Строка подключения для Python-приложения (должна совпадать с данными выше)
-   DATABASE_URL=postgresql://ваш_пользователь_БД:ваш_пароль_БД@db:5432/название_вашей_БД
+   DATABASE_URL=postgresql://fashion_user:fashion_pass@db:5432/fashion_db
+   
+   # Ваш логин на GitHub (в нижнем регистре)
+   GHCR_USERNAME=your_login
+   # Personal Access Token (classic) с правами write:packages, read:packages, delete:packages
+   GHCR_TOKEN=ghp_***
+   
+   # Логин и пароль для доступа к веб-интерфейсу бота через Nginx
+   NGINX_AUTH_USER=your_login
+   NGINX_AUTH_PASSWORD=your_password
    ```
 
 #### Как получить токен бота?

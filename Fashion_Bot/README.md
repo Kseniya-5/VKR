@@ -23,13 +23,13 @@
    # Оставить по умолчанию для работы внутри кластера
    REDIS_URL=redis://redis:6379/0
    
-   # Учетные данные для базы данных
-   POSTGRES_USER=fashion_user
-   POSTGRES_PASSWORD=fashion_pass
-   POSTGRES_DB=fashion_db
+   # Учетные данные для базы данных PostgreSQL (задайте свои значения)
+   POSTGRES_USER=ваш_пользователь_БД
+   POSTGRES_PASSWORD=ваш_пароль_БД
+   POSTGRES_DB=название_вашей_БД
    
    # Строка подключения для Python-приложения (должна совпадать с данными выше)
-   DATABASE_URL=postgresql://fashion_user:fashion_pass@db:5432/fashion_db
+   DATABASE_URL=postgresql://ваш_пользователь_БД:ваш_пароль_БД@db:5432/название_вашей_БД
    
    # Ваш логин на GitHub (в нижнем регистре)
    GHCR_USERNAME=your_login

@@ -12,10 +12,12 @@ spec:
       labels:
         app: worker
     spec:
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: worker
-          image: fashion-bot:latest
-          imagePullPolicy: Never
+          image: ghcr.io/kseniya-5/fashion-bot:v1
+          imagePullPolicy: Always
           command: ["celery", "-A", "tasks", "worker", "--loglevel=info"]
           envFrom:
             - configMapRef:

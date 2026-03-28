@@ -21,10 +21,17 @@ spec:
             - name: nginx-conf-volume
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+            - name: auth-volume
+              mountPath: /etc/nginx/conf.d/auth
+              subPath: auth
+              readOnly: true
       volumes:
         - name: nginx-conf-volume
           configMap:
             name: nginx-config
+        - name: auth-volume
+          secret:
+            secretName: nginx-basic-auth
 ---
 apiVersion: v1
 kind: Service

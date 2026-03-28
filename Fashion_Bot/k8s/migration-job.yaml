@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migration
+          image: postgres:15-alpine
+          envFrom:
+            - configMapRef:
+                name: fashion-config
+            - secretRef:
+                name: fashion-secrets
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Ожидание запуска базы данных..."
+              until pg_isready -h db -p 5432 -U $POSTGRES_USER; do
+                sleep 2
+              done
+              echo "✅ База готова! Выполняем миграцию..."
+              psql -h db -U $POSTGRES_USER -d $POSTGRES_DB -f /scripts/init.sql
+              echo "Миграция успешно завершена!"
+          volumeMounts:
+            - name: script-volume
+              mountPath: /scripts/init.sql
+              subPath: init.sql
+      volumes:
+        - name: script-volume
+          configMap:
+            name: db-init-script

@@ -18,7 +18,7 @@
 2. Скопируйте в него следующие настройки и замените значение `BOT_TOKEN` на ваш токен от @BotFather:
    ```env
    # Токен вашего Telegram-бота (ОБЯЗАТЕЛЬНО ЗАМЕНИТЬ НА СВОЙ)
-   BOT_TOKEN=8206947454:AAFy1KkyDQcd5NVAYZKI7-R1sXrQTka--tE
+   BOT_TOKEN=ваш_токен_из_BotFather
    
    # Оставить по умолчанию для работы внутри кластера
    REDIS_URL=redis://redis:6379/0

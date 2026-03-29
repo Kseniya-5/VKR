@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-init-script
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS model_tasks (
+        task_id VARCHAR(255) PRIMARY KEY,
+        status VARCHAR(50) NOT NULL,
+        result TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );

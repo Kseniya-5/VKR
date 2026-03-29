@@ -35,7 +35,7 @@
 
 **Computer Vision & Data Science:**
 * Python 3.12
-* PyTorch / OpenCV / Scikit-learn (или укажите ваши библиотеки, например Ultralytics/YOLO)
+* PyTorch / OpenCV / Scikit-learn 
 * Pandas / NumPy
 
 **Backend & Инфраструктура:**

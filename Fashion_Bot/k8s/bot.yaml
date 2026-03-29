@@ -12,10 +12,12 @@ spec:
       labels:
         app: telegram-bot
     spec:
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: bot
-          image: fashion-bot:latest
-          imagePullPolicy: Never
+          image: ghcr.io/kseniya-5/fashion-bot:v1
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:

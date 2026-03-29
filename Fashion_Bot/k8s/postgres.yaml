@@ -1,8 +1,9 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: db
 spec:
+  serviceName: "db"
   replicas: 1
   selector:
     matchLabels:
@@ -23,13 +24,16 @@ spec:
             - secretRef:
                 name: fashion-secrets
           volumeMounts:
-            - name: init-sql-volume
-              mountPath: /docker-entrypoint-initdb.d/init.sql
-              subPath: init.sql
-      volumes:
-        - name: init-sql-volume
-          configMap:
-            name: db-init-script
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi # Выделяем 1 ГБ под базу данных
 ---
 apiVersion: v1
 kind: Service

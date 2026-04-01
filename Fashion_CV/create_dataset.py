@@ -25,21 +25,23 @@ Your task is to extract detailed attributes of the main clothing item visible in
 Please use the following specific guidelines for filling out the fields. All values in the JSON must be in English:
 1. item_type: The specific category (e.g., dress, blouse, trousers, skirt, blazer, coat, t-shirt).
 2. demographic: Who is this for? (e.g., women, men, children, unisex).
-3. color: The main color and specific shade (e.g., navy blue, beige, crimson red).
-4. silhouette: The overall shape (e.g., straight, semi-fitted, fitted, A-line/trapeze, oversize).
-5. design_features: Specific construction details or cut (e.g., V-neck, double-breasted, high-waisted, asymmetrical hem).
-6. length: Length relative to the body (e.g., mini, midi, maxi, knee-length, cropped, full-length).
-7. volume: The fit volume (e.g., tight, regular/moderate, loose/oversized).
-8. functional_elements: List as an array (e.g., buttons, zippers, pockets, hood, drawstrings).
-9. decorative_elements: List as an array (e.g., visible seams, embroidery, ruffles, pleats, prints, piping).
-10. accessories: List as an array (e.g., belt, collar, cuffs, tie).
-11. season: Best season for wear (e.g., winter, summer, demi-season/transition, all-season).
-12. purpose: The primary occasion (e.g., casual, business, evening, sportswear, loungewear).
-13. style: The fashion style (e.g., classic, casual, sporty, boho, minimalist, street style).
-14. usage_conditions: Where it should be worn (e.g., office, vacation, gym, party, outdoor).
+3. age_group: The typical age range this item is designed for or commonly worn by (e.g., kids, teenagers, young adults 18-35, adults 35-50, mature 50+, all ages).
+4. color: The main color and specific shade (e.g., navy blue, beige, crimson red).
+5. silhouette: The overall shape (e.g., straight, semi-fitted, fitted, A-line/trapeze, oversize).
+6. design_features: Specific construction details or cut (e.g., V-neck, double-breasted, high-waisted, asymmetrical hem).
+7. length: Length relative to the body (e.g., mini, midi, maxi, knee-length, cropped, full-length).
+8. volume: The fit volume (e.g., tight, regular/moderate, loose/oversized).
+9. functional_elements: List as an array (e.g., buttons, zippers, pockets, hood, drawstrings).
+10. decorative_elements: List as an array (e.g., visible seams, embroidery, ruffles, pleats, prints, piping).
+11. accessories: List as an array (e.g., belt, collar, cuffs, tie).
+12. season: Best season for wear (e.g., winter, summer, demi-season/transition, all-season).
+13. purpose: The primary occasion (e.g., casual, business, evening, sportswear, loungewear).
+14. style: The fashion style (e.g., classic, casual, sporty, boho, minimalist, street style).
+15. usage_conditions: Where it should be worn (e.g., office, vacation, gym, party, outdoor).
 
 If a specific attribute is not visible or applicable, use null.
 """
+
 def clean_junk_files(directory):
     """
     Рекурсивно удаляет системный мусор (например, файлы :Zone.Identifier)

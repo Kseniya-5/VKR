@@ -11,6 +11,9 @@ from config import API_KEY
 IMAGE_DIR = "data/images"
 OUTPUT_FILE = "data/dataset_annotations.json"
 
+Path(IMAGE_DIR).mkdir(parents=True, exist_ok=True)
+Path(OUTPUT_FILE).parent.mkdir(parents=True, exist_ok=True)
+
 
 genai.configure(api_key=API_KEY)
 

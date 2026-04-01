@@ -40,53 +40,70 @@ Please use the following specific guidelines for filling out the fields. All val
 
 If a specific attribute is not visible or applicable, use null.
 """
-
+def clean_junk_files(directory):
+    """
+    Рекурсивно удаляет системный мусор (например, файлы :Zone.Identifier)
+    """
+    print(f"Очистка мусорных файлов в {directory}...")
+    count = 0
+    for path in Path(directory).rglob("*:Zone.Identifier"):
+        try:
+            path.unlink()
+            count += 1
+        except Exception as e:
+            print(f"Не удалось удалить {path}: {e}")
+    print(f"Удалено мусорных файлов: {count}")
 
 def analyze_image(image_path, model):
     try:
         img = Image.open(image_path)
         response = model.generate_content([PROMPT, img])
+        
         return json.loads(response.text)
     except Exception as e:
         print(f"Ошибка при обработке {image_path}: {e}")
         return None
 
-
 def main():
+    clean_junk_files(IMAGE_DIR)
+    
     model = genai.GenerativeModel(
         "gemini-1.5-flash",
         generation_config={"response_mime_type": "application/json"}
     )
-
-    image_paths = list(Path(IMAGE_DIR).glob("*.[jJ][pP][gG]")) + list(Path(IMAGE_DIR).glob("*.[pP][nN][gG]"))
-
+    
+    image_paths = list(Path(IMAGE_DIR).rglob("*.[jJ][pP][gG]")) + list(Path(IMAGE_DIR).rglob("*.[pP][nN][gG]"))
+    
     print(f"Найдено картинок: {len(image_paths)}")
-
+    
     dataset = {}
-
+    
+    # Загружаем существующий прогресс, если скрипт прервался
     if os.path.exists(OUTPUT_FILE):
         with open(OUTPUT_FILE, 'r', encoding='utf-8') as f:
             dataset = json.load(f)
             print(f"Возобновляем работу. Уже обработано: {len(dataset)}")
 
     for img_path in tqdm(image_paths):
-        filename = img_path.name
-
-        if filename in dataset:
+        relative_path = str(img_path.relative_to(IMAGE_DIR))
+        
+        # Пропускаем, если уже обработали
+        if relative_path in dataset:
             continue
-
+            
         result = analyze_image(img_path, model)
-
+        
         if result:
-            dataset[filename] = result
-
+            dataset[relative_path] = result
+            
+            # Сохраняем прогресс
             with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
                 json.dump(dataset, f, indent=4, ensure_ascii=False)
-
+        
+        # Пауза для обхода лимитов
         time.sleep(4)
 
     print("Обработка завершена!")
-
 
 if __name__ == "__main__":
     main()

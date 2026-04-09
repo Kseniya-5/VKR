@@ -2,8 +2,7 @@
 name = "fashion-cv"
 version = "0.1.0"
 description = "ML-ядро VKR: предобработка и модели компьютерного зрения"
-# README живёт на уровне Fashion_CV/, чтобы в дереве оставался один главный README.
-readme = "../../README.md"
+readme = "README.md"
 # Для GPU-варианта (`rembg[gpu]` → `onnxruntime-gpu`) нужны колёса onnxruntime-gpu,
 # которые на Linux сейчас доступны начиная с Python 3.11.
 requires-python = ">=3.11,<3.14"

@@ -1,0 +1,22 @@
+[project]
+name = "fashion-cv"
+version = "0.1.0"
+description = "ML-ядро VKR: предобработка и модели компьютерного зрения"
+readme = "README.md"
+# Для GPU-варианта (`rembg[gpu]` → `onnxruntime-gpu`) нужны колёса onnxruntime-gpu,
+# которые на Linux сейчас доступны начиная с Python 3.11.
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "pillow>=10",
+  "rembg[gpu]>=2.0.0",
+]
+
+[project.scripts]
+fashion-cv = "fashion_cv.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.24.2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fashion_cv"]

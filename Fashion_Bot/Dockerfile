@@ -2,24 +2,34 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
 RUN pip install --no-cache-dir uv
+
 COPY pyproject.toml uv.lock README.md ./
+COPY app ./app
+COPY migrations ./migrations
 
-RUN uv pip install --system --no-cache-dir --compile-bytecode .
+RUN uv venv /opt/venv && \
+    uv pip install --python /opt/venv/bin/python --no-cache-dir .
 
-FROM python:3.12-slim
+FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+RUN useradd --create-home --uid 1000 appuser
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --chown=appuser:appuser app ./app
+COPY --chown=appuser:appuser migrations ./migrations
+COPY --chown=appuser:appuser pyproject.toml uv.lock README.md ./
+
 USER appuser
-
-COPY --from=builder --chown=appuser:appuser /usr/local /usr/local
-
-COPY --chown=appuser:appuser . .
-
-ENV PYTHONUNBUFFERED=1
-
-RUN chmod +x entrypoint.sh
-
-ENTRYPOINT ["./entrypoint.sh"]

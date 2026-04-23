@@ -12,28 +12,18 @@ spec:
       labels:
         app: telegram-bot
     spec:
-      imagePullSecrets:
-        - name: ghcr-secret
       containers:
-        - name: bot
-          image: ghcr.io/kseniya-5/fashion-bot:v1
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8080
+        - name: telegram-bot
+          image: fashion-bot:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.bot.main"]
           envFrom:
             - configMapRef:
                 name: fashion-config
             - secretRef:
                 name: fashion-secrets
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: telegram-bot
-spec:
-  selector:
-    app: telegram-bot
-  ports:
-    - protocol: TCP
-      port: 8080
-      targetPort: 8080
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - containerPort: 8080    

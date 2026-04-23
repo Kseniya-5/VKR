@@ -12,15 +12,23 @@ spec:
       labels:
         app: worker
     spec:
-      imagePullSecrets:
-        - name: ghcr-secret
       containers:
         - name: worker
-          image: ghcr.io/kseniya-5/fashion-bot:v1
-          imagePullPolicy: Always
-          command: ["celery", "-A", "tasks", "worker", "--loglevel=info"]
+          image: fashion-bot:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
           envFrom:
             - configMapRef:
                 name: fashion-config
             - secretRef:
                 name: fashion-secrets
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi" # После добавлении модели можно увеличить до 8
+              cpu: "2"

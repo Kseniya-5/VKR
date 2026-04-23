@@ -26,6 +26,12 @@ spec:
           volumeMounts:
             - name: pg-data
               mountPath: /var/lib/postgresql/data
+            - name: db-init-script
+              mountPath: /docker-entrypoint-initdb.d/
+      volumes:
+        - name: db-init-script
+          configMap:
+            name: db-init-configmap
   volumeClaimTemplates:
     - metadata:
         name: pg-data
@@ -33,7 +39,7 @@ spec:
         accessModes: [ "ReadWriteOnce" ]
         resources:
           requests:
-            storage: 1Gi # Выделяем 1 ГБ под базу данных
+            storage: 1Gi
 ---
 apiVersion: v1
 kind: Service

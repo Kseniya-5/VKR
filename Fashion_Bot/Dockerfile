@@ -14,6 +14,8 @@ COPY pyproject.toml uv.lock README.md ./
 COPY app ./app
 COPY migrations ./migrations
 
+ENV UV_HTTP_TIMEOUT=600
+
 RUN uv venv /opt/venv && \
     uv pip install --python /opt/venv/bin/python --no-cache-dir .
 

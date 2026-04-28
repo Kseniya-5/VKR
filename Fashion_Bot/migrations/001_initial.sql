@@ -1,6 +1,8 @@
--- 1. Главная таблица пользователей 
+-- 1. Главная таблица пользователей (Добавлено мягкое удаление)
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    is_deleted BOOLEAN DEFAULT FALSE, -- Мягкое удаление
+    deleted_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -16,7 +18,7 @@ CREATE TABLE IF NOT EXISTS telegram_accounts (
     UNIQUE(user_id) -- У одного пользователя может быть только один привязанный TG
 );
 
--- 3. Web-аккаунты с защитой (Шаг B)
+-- 3. Web-аккаунты (Добавлена блокировка после неудачных попыток)
 CREATE TABLE IF NOT EXISTS web_accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -24,7 +26,9 @@ CREATE TABLE IF NOT EXISTS web_accounts (
     password_hash VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id),
-    CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+    CONSTRAINT valid_email CHECK (
+        email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+    )
 );
 
 -- 4. Одноразовые коды для связывания (Шаг A и Шаг B)

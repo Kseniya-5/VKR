@@ -15,3 +15,4 @@ poetry.lock
 minikube-linux-amd64
 k8s/secret.yaml
 .db-port-forward.pid
+.api-port-forward.pid

@@ -2,13 +2,20 @@
 
 set -e
 
-PORT_FORWARD_PID_FILE=".db-port-forward.pid"
+PORT_FORWARD_DB_PID_FILE=".db-port-forward.pid"
+PORT_FORWARD_API_PID_FILE=".api-port-forward.pid"
+
 DB_LOCAL_PORT=5433
 DB_REMOTE_PORT=5432
 DB_SERVICE_NAME="db"
 
+API_SERVICE_NAME="fashion-api-service"
+API_LOCAL_PORT=8000
+API_REMOTE_PORT=8000
+
 echo "🚀 Начинаем деплой проекта в Minikube..."
 
+# 1. Minikube
 if ! minikube status | grep -q "Running"; then
     echo "📦 Запускаем Minikube..."
     minikube start
@@ -17,8 +24,11 @@ fi
 echo "🐳 Переключаем Docker-окружение на Minikube..."
 eval "$(minikube docker-env)"
 
-echo "🔨 Собираем Docker-образ приложения..."
+# 2. Сборка образа приложения
+echo "🔨 Собираем Docker-образ приложения (FastAPI + бот + воркер)..."
 docker build -t fashion-bot:latest .
+
+# 3. Секреты и конфиги
 
 echo "🗑 Удаляем старые секреты и конфиги (если есть)..."
 kubectl delete secret fashion-secrets --ignore-not-found=true
@@ -63,6 +73,7 @@ kubectl create secret docker-registry ghcr-secret \
   --docker-username="$GHCR_USERNAME" \
   --docker-password="$GHCR_TOKEN"
 
+# 4. Применяем манифесты
 echo "📂 Применяем k8s манифесты..."
 kubectl apply -f k8s/
 
@@ -78,40 +89,71 @@ kubectl rollout restart deployment/telegram-bot || true
 kubectl rollout restart deployment/worker || true
 kubectl rollout restart deployment/fashion-api || true
 
-echo "🧹 Останавливаем старый port-forward, если он был..."
-if [ -f "$PORT_FORWARD_PID_FILE" ]; then
-    OLD_PID=$(cat "$PORT_FORWARD_PID_FILE")
+echo "⏳ Ждем готовности deployment/fashion-api..."
+kubectl rollout status deployment/fashion-api --timeout=180s || {
+  echo "❌ deployment/fashion-api не стал готовым"
+  exit 1
+}
+
+# 5. Port-forward'ы для локальной проверки
+
+echo "🧹 Останавливаем старые port-forward'ы, если они были..."
+
+if [ -f "$PORT_FORWARD_DB_PID_FILE" ]; then
+    OLD_PID=$(cat "$PORT_FORWARD_DB_PID_FILE")
     if ps -p "$OLD_PID" > /dev/null 2>&1; then
         kill "$OLD_PID" || true
-        echo "ℹ️ Старый port-forward остановлен (PID: $OLD_PID)"
+        echo "ℹ️ Старый DB port-forward остановлен (PID: $OLD_PID)"
     fi
-    rm -f "$PORT_FORWARD_PID_FILE"
+    rm -f "$PORT_FORWARD_DB_PID_FILE"
+fi
+
+if [ -f "$PORT_FORWARD_API_PID_FILE" ]; then
+    OLD_PID=$(cat "$PORT_FORWARD_API_PID_FILE")
+    if ps -p "$OLD_PID" > /dev/null 2>&1; then
+        kill "$OLD_PID" || true
+        echo "ℹ️ Старый API port-forward остановлен (PID: $OLD_PID)"
+    fi
+    rm -f "$PORT_FORWARD_API_PID_FILE"
 fi
 
 echo "🔌 Поднимаем port-forward для PostgreSQL на 127.0.0.1:${DB_LOCAL_PORT} ..."
 nohup kubectl port-forward "svc/${DB_SERVICE_NAME}" "${DB_LOCAL_PORT}:${DB_REMOTE_PORT}" > /dev/null 2>&1 &
-echo $! > "$PORT_FORWARD_PID_FILE"
+echo $! > "$PORT_FORWARD_DB_PID_FILE"
 
 sleep 2
 
-if ps -p "$(cat "$PORT_FORWARD_PID_FILE")" > /dev/null 2>&1; then
-    echo "✅ Port-forward успешно запущен"
+if ps -p "$(cat "$PORT_FORWARD_DB_PID_FILE")" > /dev/null 2>&1; then
+    echo "✅ DB port-forward успешно запущен"
 else
-    echo "❌ Не удалось запустить port-forward"
+    echo "❌ Не удалось запустить DB port-forward"
     exit 1
 fi
 
-echo "✅ Деплой успешно завершен!"
+echo "🔌 Поднимаем port-forward для API на 127.0.0.1:${API_LOCAL_PORT} ..."
+nohup kubectl port-forward "svc/${API_SERVICE_NAME}" "${API_LOCAL_PORT}:${API_REMOTE_PORT}" > /dev/null 2>&1 &
+echo $! > "$PORT_FORWARD_API_PID_FILE"
+
+sleep 2
+
+if ps -p "$(cat "$PORT_FORWARD_API_PID_FILE")" > /dev/null 2>&1; then
+    echo "✅ API port-forward успешно запущен"
+else
+    echo "❌ Не удалось запустить API port-forward"
+    exit 1
+fi
+
+echo "✅ Деплой и настройка окружения для проверки успешно завершены!"
 echo "**********************************************************************************"
-echo "🌐 Чтобы открыть Nginx, используйте: minikube service nginx-service --url"
-echo "⏰ Для проверки статуса подов: kubectl get pods"
-echo "💾 Для проверки PVC: kubectl get pvc"
-echo "🛠 Для проверки сервисов: kubectl get services"
+echo "🌐 Nginx: minikube service nginx-service --url"
+echo "🧪 FastAPI Swagger: http://127.0.0.1:${API_LOCAL_PORT}/docs"
+echo "⏰ Статус подов: kubectl get pods"
+echo "🛠 Сервисы: kubectl get services"
 echo " "
-echo "🗄 DBeaver PostgreSQL:"
+echo "🗄 PostgreSQL (локально через port-forward):"
 echo "   Host: 127.0.0.1"
 echo "   Port: ${DB_LOCAL_PORT}"
 echo "   Database: ${POSTGRES_DB}"
 echo "   User: ${POSTGRES_USER}"
 echo " "
-echo "🛑 Для остановки сервисов в Kubernetes используйте: ./stop.sh"
+echo "🛑 Для остановки сервисов в Kubernetes: ./stop.sh"

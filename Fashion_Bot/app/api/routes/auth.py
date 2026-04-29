@@ -7,6 +7,7 @@ from app.core.security import hash_password, create_access_token, verify_passwor
 from app.db.session import get_db
 from app.db.models import User, WebAccount
 
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -29,7 +30,7 @@ async def register(
 
     user = User()
     db.add(user)
-    await db.flush()  
+    await db.flush()
 
     web_account = WebAccount(
         user_id=user.id,

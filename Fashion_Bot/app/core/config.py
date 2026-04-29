@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -29,7 +30,6 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-
 
 BOT_TOKEN = os.getenv("BOT_TOKEN") or settings.bot_token
 if not BOT_TOKEN:

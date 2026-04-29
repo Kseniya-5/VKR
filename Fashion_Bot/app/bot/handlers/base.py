@@ -1,111 +1,93 @@
 from aiogram import Router
-from aiogram.filters import Command
+from aiogram.filters import CommandStart
 from aiogram.types import Message
-import uuid
-import psycopg2
-import os
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from app.worker.tasks import train_model_task  
+from app.core.config import settings
+
 
 router = Router()
 
+engine = create_async_engine(
+    settings.database_url,
+    future=True,
+    pool_pre_ping=True,
+)
 
-def get_db_connection():
-    return psycopg2.connect(os.getenv("DATABASE_URL"))
+SessionLocal = async_sessionmaker(
+    engine,
+    expire_on_commit=False,
+)
 
 
-@router.message(Command("start"))
+@router.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.reply(
-        "Добро пожаловать! Отправь мне фото одежды — подберу образы.\n"
-        "Также доступны команды:\n"
-        "/train — запустить долгую задачу\n"
-        "/status <id> — проверить статус задачи"
-    )
+    telegram_id = message.from_user.id
+    username = message.from_user.username
+    first_name = message.from_user.first_name
+    last_name = message.from_user.last_name
 
-
-@router.message(Command("train"))
-async def start_training(message: Message):
-    task_id = str(uuid.uuid4())
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO model_tasks (task_id, status) VALUES (%s, %s)",
-            (task_id, "PENDING"),
+    async with SessionLocal() as session:
+        result = await session.execute(
+            text(
+                """
+                SELECT 1
+                FROM telegram_accounts
+                WHERE telegram_id = :telegram_id
+                LIMIT 1
+                """
+            ),
+            {"telegram_id": telegram_id},
         )
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        await message.answer(f"Ошибка при работе с БД: {e}")
-        return
+        tg_account_exists = result.scalar_one_or_none()
 
-    # Отправляем задачу в очередь
-    train_model_task.delay(task_id, "параметры_модели_заглушка")
-
-    await message.answer(
-        "Задача успешно добавлена в очередь! \n"
-        f"Ваш ID задачи:\n`{task_id}`\n\n"
-        "Чтобы проверить статус, отправьте команду:\n"
-        f"`/status {task_id}`",
-        parse_mode="Markdown",
-    )
-
-
-@router.message(Command("status"))
-async def check_status(message: Message):
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        await message.answer(
-            "Пожалуйста, укажите ID задачи. Пример:\n"
-            "`/status 12345678-1234-5678-1234-567812345678`",
-            parse_mode="Markdown",
-        )
-        return
-
-    task_id = args[1].strip()
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT status, result FROM model_tasks WHERE task_id = %s",
-            (task_id,),
-        )
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        if not row:
-            await message.answer("Задача с таким ID не найдена ❌.")
+        if tg_account_exists is not None:
+            await message.answer(
+                "Привет! Ваш Telegram уже привязан к аккаунту."
+            )
             return
 
-        status, result = row
-
-        if status == "SUCCESS":
-            await message.answer(f"Статус: Готово ✅\nРезультат: {result}")
-        elif status == "PROCESSING":
-            await message.answer("Статус: В процессе ... Пожалуйста, подождите.")
-        elif status == "PENDING":
-            await message.answer("Статус: В очереди. Скоро начнется.")
-        elif status == "FAILED":
-            await message.answer(f"Статус: Ошибка ❌\nДетали: {result}")
-        else:
-            await message.answer(f"Статус: {status}\nРезультат: {result}")
-
-    except Exception as e:
-        await message.answer(f"Ошибка при проверке статуса: {e}")
-
-
-@router.message()
-async def echo(message: Message):
-    if message.photo:
-        await message.answer(
-            "📸 Получил фото! Анализирую... (скоро будет подбор образов)"
+        user_result = await session.execute(
+            text(
+                """
+                INSERT INTO users DEFAULT VALUES
+                RETURNING id
+                """
+            )
         )
-    else:
-        await message.answer(
-            "💬 Я понимаю только фото одежды. Отправь изображение!"
+        user_id = user_result.scalar_one()
+
+        await session.execute(
+            text(
+                """
+                INSERT INTO telegram_accounts (
+                    telegram_id,
+                    user_id,
+                    username,
+                    first_name,
+                    last_name
+                )
+                VALUES (
+                    :telegram_id,
+                    :user_id,
+                    :username,
+                    :first_name,
+                    :last_name
+                )
+                """
+            ),
+            {
+                "telegram_id": telegram_id,
+                "user_id": user_id,
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name,
+            },
         )
+
+        await session.commit()
+
+    await message.answer(
+        "Привет! Telegram сохранён. Для привязки аккаунта используйте команду /profile."
+    )

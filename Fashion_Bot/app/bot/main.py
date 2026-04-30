@@ -1,5 +1,6 @@
 import asyncio
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.core.config import BOT_TOKEN
 from app.bot.middlewares import LoggingMiddleware
@@ -8,10 +9,10 @@ from app.bot.handlers.auth import router as auth_router
 
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
 dp.message.middleware(LoggingMiddleware())
-
 dp.include_routers(
     base_router,
     auth_router,

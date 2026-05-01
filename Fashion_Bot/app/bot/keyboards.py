@@ -88,13 +88,15 @@ def profile_keyboard(has_last_name: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=last_name_button_text, callback_data="edit_last_name"),
+                InlineKeyboardButton(text="✍️ Обновить имя", callback_data="edit_first_name"),
+                InlineKeyboardButton(text=last_name_button_text, callback_data="edit_last_name")
             ],
             [
                 InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
             ],
         ]
     )
+
 def cancel_input_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

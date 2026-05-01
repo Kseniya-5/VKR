@@ -107,33 +107,54 @@ def get_help_text() -> str:
         
     )
 
-
-@router.message(CommandStart())
-async def cmd_start(message: Message):
-    telegram_id = message.from_user.id
-    is_registered = await is_user_registered(telegram_id)
-
-    if is_registered:
+async def show_main_menu(
+    target_message,
+    state: FSMContext,
+    is_registered: bool,
+    warning: bool = False,
+):
+    if warning:
         text_value = (
-            "👋 <b>С возвращением в Fashion Bot!</b>\n\n"
-            "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
-            "Выберите нужное действие ниже."
+            "🥺 <b>Извините, но сейчас я ожидаю нажатие кнопок.</b>\n"
+            "Пожалуйста, выберите нужное действие ниже."
         )
     else:
-        text_value = (
-            "👗 <b>Добро пожаловать в Fashion Bot!</b>\n\n"
-            "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
-            "Чтобы начать, нажмите кнопку <b>«📝 Зарегистрироваться»</b>."
-        )
+        if is_registered:
+            text_value = (
+                "👋 <b>С возвращением в Fashion Bot!</b>\n\n"
+                "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
+                "Выберите нужное действие ниже."
+            )
+        else:
+            text_value = (
+                "👗 <b>Добро пожаловать в Fashion Bot!</b>\n\n"
+                "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
+                "Чтобы начать, нажмите кнопку <b>«📝 Зарегистрироваться»</b>."
+            )
 
-    await message.answer(
+    sent_message = await target_message.answer(
         text_value,
         parse_mode="HTML",
         reply_markup=start_keyboard(is_registered=is_registered),
     )
 
+    await state.update_data(main_menu_message_id=sent_message.message_id)
+    return sent_message
+
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    is_registered = await is_user_registered(telegram_id)
+
+    await show_main_menu(
+        target_message=message,
+        state=state,
+        is_registered=is_registered,
+        warning=False,
+    )
+
 @router.callback_query(F.data == "back_to_main")
-async def back_to_main_callback(callback: CallbackQuery):
+async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
     is_registered = await is_user_registered(telegram_id)
 
@@ -154,6 +175,8 @@ async def back_to_main_callback(callback: CallbackQuery):
         parse_mode="HTML",
         reply_markup=start_keyboard(is_registered=is_registered),
     )
+
+    await state.update_data(main_menu_message_id=callback.message.message_id)
     await callback.answer()
 ################################################################################
 
@@ -342,6 +365,58 @@ async def process_last_name(message: Message, state: FSMContext):
         reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
     )
 
+@router.callback_query(F.data == "edit_first_name")
+async def edit_first_name_callback(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(ProfileEditState.waiting_for_first_name)
+
+    await callback.message.edit_text(
+        "✍️ <b>Редактирование имени</b>\n\n"
+        "Введите имя следующим сообщением.",
+        parse_mode="HTML",
+        reply_markup=cancel_input_keyboard(),
+    )
+    await callback.answer()
+
+@router.message(ProfileEditState.waiting_for_first_name)
+async def process_first_name(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Введите имя текстом.")
+        return
+
+    telegram_id = message.from_user.id
+    first_name = message.text.strip()
+
+    async with SessionLocal() as session:
+        await session.execute(
+            text(
+                """
+                UPDATE telegram_accounts
+                SET first_name = :first_name
+                WHERE telegram_id = :telegram_id
+                """
+            ),
+            {
+                "first_name": first_name,
+                "telegram_id": telegram_id,
+            },
+        )
+        await session.commit()
+
+    await state.clear()
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    row = await get_profile_row(telegram_id)
+    profile_text = await get_profile_text(telegram_id)
+
+    await message.answer(
+        "✅ Имя обновлено.\n\n" + profile_text,
+        parse_mode="HTML",
+        reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+    )
 ################################################################################
 
 @router.callback_query(F.data == "open_help")
@@ -455,3 +530,43 @@ async def build_outfit_callback(callback: CallbackQuery):
 
 ################################################################################
 
+@router.message()
+async def unexpected_message_handler(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+
+    if current_state is not None:
+        return
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    is_registered = await is_user_registered(message.from_user.id)
+    data = await state.get_data()
+    main_menu_message_id = data.get("main_menu_message_id")
+
+    warning_text = (
+        "🥺 <b>Извините, но сейчас я ожидаю нажатие кнопок.</b>\n"
+        "Пожалуйста, выберите нужное действие ниже."
+    )
+
+    if main_menu_message_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=main_menu_message_id,
+                text=warning_text,
+                parse_mode="HTML",
+                reply_markup=start_keyboard(is_registered=is_registered),
+            )
+            return
+        except Exception:
+            pass
+
+    sent_message = await message.answer(
+        warning_text,
+        parse_mode="HTML",
+        reply_markup=start_keyboard(is_registered=is_registered),
+    )
+    await state.update_data(main_menu_message_id=sent_message.message_id)

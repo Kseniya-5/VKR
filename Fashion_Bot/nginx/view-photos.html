@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мои фото — Fashion Bot</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f5f5f5;
+    }
+    h1 {
+      font-size: 28px;
+      color: #333;
+    }
+    .auth-block {
+      background: #fff;
+      padding: 24px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 24px;
+    }
+    .auth-block label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+    .auth-block input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .auth-block button {
+      margin-top: 12px;
+      padding: 10px 20px;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .auth-block button:hover {
+      background: #0056b3;
+    }
+    .error {
+      color: #c00;
+      margin-top: 12px;
+    }
+    .success {
+      color: #090;
+      margin-top: 12px;
+    }
+    .photos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .photo-card {
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .photo-card img {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      display: block;
+    }
+    .photo-card .info {
+      padding: 12px;
+      font-size: 13px;
+      color: #666;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>🖼 Мои фото</h1>
+
+  <!-- Блок авторизации (если токена нет в URL) -->
+  <div id="auth-block" class="auth-block" style="display:none;">
+    <p>Чтобы просмотреть фото, получите ссылку для входа в боте (кнопка «🔗 Веб-версия» → «🔑 Сгенерировать ссылку»).</p>
+    <label>
+      Или введите токен вручную:
+      <input type="text" id="manual-token" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+    </label>
+    <button onclick="loadPhotosWithManualToken()">Загрузить фото</button>
+    <div id="auth-message"></div>
+  </div>
+
+  <!-- Контейнер для фото -->
+  <div id="photos-container"></div>
+
+  <script>
+    const apiBaseUrl = "http://127.0.0.1:8000";
+    let accessToken = null;
+
+    function getTokenFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("token");
+    }
+
+    async function loadPhotos(token) {
+      const container = document.getElementById("photos-container");
+      container.innerHTML = '<div class="loading">Загрузка...</div>';
+
+      try {
+        const response = await fetch(apiBaseUrl + "/photos?page=1&page_size=50", {
+          method: "GET",
+          headers: {
+            "Authorization": "Bearer " + token,
+          },
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            container.innerHTML = '<div class="error">Токен недействителен или истёк. Получите новую ссылку в боте.</div>';
+            document.getElementById("auth-block").style.display = "block";
+            return;
+          }
+          throw new Error("HTTP " + response.status);
+        }
+
+        const data = await response.json();
+        const total = data.total || 0;
+        const items = data.items || [];
+
+        if (total === 0) {
+          container.innerHTML = '<div class="loading">У вас пока нет загруженных фото.</div>';
+          return;
+        }
+
+        let html = `<p><strong>Всего фото:</strong> ${total}</p><div class="photos-grid">`;
+
+        for (const item of items) {
+          const createdAt = item.created_at ? new Date(item.created_at).toLocaleString("ru-RU") : "—";
+          
+          // Если есть telegram_file_id — показываем заглушку (Telegram file_id работает только в боте)
+          // Если есть url — показываем изображение
+          const imgSrc = item.url || "https://via.placeholder.com/200x200?text=No+Image";
+          
+          html += `
+            <div class="photo-card">
+              <img src="${imgSrc}" alt="Фото ${item.id}" />
+              <div class="info">
+                <div>ID: ${item.id.substring(0, 8)}...</div>
+                <div>Дата: ${createdAt}</div>
+              </div>
+            </div>
+          `;
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+
+      } catch (err) {
+        console.error(err);
+        container.innerHTML = '<div class="error">Не удалось загрузить фото. Проверьте подключение к серверу.</div>';
+      }
+    }
+
+    function loadPhotosWithManualToken() {
+      const token = document.getElementById("manual-token").value.trim();
+      const messageEl = document.getElementById("auth-message");
+      messageEl.textContent = "";
+      messageEl.className = "";
+
+      if (!token) {
+        messageEl.textContent = "Введите токен.";
+        messageEl.className = "error";
+        return;
+      }
+
+      accessToken = token;
+      document.getElementById("auth-block").style.display = "none";
+      loadPhotos(token);
+    }
+
+    // При загрузке страницы проверяем токен в URL
+    window.addEventListener("DOMContentLoaded", () => {
+      const token = getTokenFromQuery();
+      if (token) {
+        accessToken = token;
+        loadPhotos(token);
+      } else {
+        document.getElementById("auth-block").style.display = "block";
+        document.getElementById("photos-container").innerHTML = "";
+      }
+    });
+  </script>
+</body>
+</html>

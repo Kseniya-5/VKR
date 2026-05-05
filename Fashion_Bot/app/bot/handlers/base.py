@@ -12,6 +12,7 @@ import logging
 import json
 import re
 
+
 from app.core.config import settings
 from app.bot.keyboards import (
     start_keyboard,
@@ -21,10 +22,17 @@ from app.bot.keyboards import (
     link_web_keyboard,
     link_from_web_keyboard,
     view_photos_keyboard,
+    confirm_delete_photos_keyboard,
+    account_management_keyboard,
+    confirm_unlink_telegram_keyboard,
+    confirm_delete_account_keyboard,
+    back_to_link_web_keyboard,
 )
+
 
 router = Router()
 upload_locks: dict[int, asyncio.Lock] = {}
+
 
 engine = create_async_engine(
     settings.database_url,
@@ -32,10 +40,12 @@ engine = create_async_engine(
     pool_pre_ping=True,
 )
 
+
 SessionLocal = async_sessionmaker(
     engine,
     expire_on_commit=False,
 )
+
 
 logger = logging.getLogger(__name__)
 API_BASE_URL = "http://fashion-api-service:8000"
@@ -103,6 +113,13 @@ async def get_profile_text(telegram_id: int) -> str | None:
     )
 
 
+def has_last_name(row) -> bool:
+    if not row:
+        return False
+    value = row["last_name"]
+    return value is not None and str(value).strip() != ""
+
+
 def get_help_text() -> str:
     return (
         "❔ <b>Помощь</b>\n\n"
@@ -112,10 +129,30 @@ def get_help_text() -> str:
         "• ⚙️ Управление аккаунтом — отвязка Telegram или удаление аккаунта\n"
         "• 🔗 Веб-версия — связь с сайтом\n"
         "• 📸 Загрузить фото — отправка фото одежды\n"
-        "• 🖼 Посмотреть фото — просмотр загруженных фото\n"
+        "• 🖼 Посмотреть фото — просмотр загруженных фото и удаление\n"
         "• 👗 Получить рекомендации — советы по подбору одежды\n"
         "• 🧥 Собрать образ — помощь в составлении комплекта"
     )
+
+
+def insert_warning_into_text(original_text: str) -> str:
+    """
+    Вставляет предупреждение между заголовком и остальным текстом с пустыми строками
+    """
+    warning = (
+        "\n\n🥺 <b>Извините, но сейчас я ожидаю нажатие кнопок.</b>\n"
+        "Пожалуйста, выберите нужное действие ниже.\n"
+    )
+
+    if "\n\n" in original_text:
+        parts = original_text.split("\n\n", 1)
+        return parts[0] + warning + "\n" + parts[1]
+    else:
+        lines = original_text.split("\n", 1)
+        if len(lines) > 1:
+            return lines[0] + warning + "\n" + lines[1]
+        else:
+            return original_text + warning
 
 
 async def show_main_menu(
@@ -151,7 +188,12 @@ async def show_main_menu(
         reply_markup=start_keyboard(is_registered=is_registered),
     )
 
-    await state.update_data(main_menu_message_id=sent_message.message_id)
+    await state.update_data(
+        main_menu_message_id=sent_message.message_id,
+        current_message_id=sent_message.message_id,
+        current_text=text_value,
+        current_keyboard="start",
+    )
     return sent_message
 
 
@@ -177,7 +219,14 @@ async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
     photo_message_ids = data.get("photo_message_ids", [])
     menu_message_id = data.get("menu_message_id")
 
-    await _delete_photo_messages(callback.bot, callback.message.chat.id, photo_message_ids)
+    for mid in photo_message_ids:
+        try:
+            await callback.bot.delete_message(
+                chat_id=callback.message.chat.id,
+                message_id=mid,
+            )
+        except Exception:
+            pass
 
     if menu_message_id:
         try:
@@ -208,45 +257,207 @@ async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
             parse_mode="HTML",
             reply_markup=start_keyboard(is_registered=is_registered),
         )
-        await state.update_data(main_menu_message_id=callback.message.message_id)
+        await state.update_data(
+            main_menu_message_id=callback.message.message_id,
+            current_message_id=callback.message.message_id,
+            current_text=text_value,
+            current_keyboard="start",
+        )
     except Exception:
         sent = await callback.message.answer(
             text_value,
             parse_mode="HTML",
             reply_markup=start_keyboard(is_registered=is_registered),
         )
-        await state.update_data(main_menu_message_id=sent.message_id)
+        await state.update_data(
+            main_menu_message_id=sent.message_id,
+            current_message_id=sent.message_id,
+            current_text=text_value,
+            current_keyboard="start",
+        )
 
     await callback.answer()
 
 
 @router.message(Command("help"))
-async def help_cmd(message: Message):
+async def help_cmd(message: Message, state: FSMContext):
     telegram_id = message.from_user.id
     is_registered = await is_user_registered(telegram_id)
 
-    await message.answer(
-        get_help_text(),
+    text = get_help_text()
+
+    sent = await message.answer(
+        text,
         parse_mode="HTML",
-        reply_markup=back_keyboard()
-        if is_registered
-        else start_keyboard(is_registered=False),
+        reply_markup=back_keyboard() if is_registered else start_keyboard(is_registered=False),
     )
+
+    await state.update_data(
+        current_message_id=sent.message_id,
+        current_text=text,
+        current_keyboard="back" if is_registered else "start",
+    )
+
+
+@router.callback_query(F.data == "open_help")
+async def open_help_callback(callback: CallbackQuery, state: FSMContext):
+    text = get_help_text()
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=back_keyboard(),
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back",
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "account_management")
+async def account_management_callback(callback: CallbackQuery, state: FSMContext):
+    if not await is_user_registered(callback.from_user.id):
+        text = "Сначала нужно зарегистрироваться."
+        await callback.message.edit_text(
+            text,
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
+        )
+        await callback.answer()
+        return
+
+    text = (
+        "⚙️ <b>Управление аккаунтом</b>\n\n"
+        "Здесь вы можете:\n"
+        "• 🔌 Отвязать Telegram — бот перестанет быть связан с аккаунтом, но сам аккаунт в сервисе сохранится.\n"
+        "• 🗑 Удалить аккаунт — аккаунт и связанные данные сервиса будут удалены.\n\n"
+        "⚠️ После отвязки или удаления текущее меню будет очищено.\n\n"
+        "Выберите нужное действие:"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=account_management_keyboard(),
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="account_management",
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "confirm_unlink_telegram")
+async def confirm_unlink_telegram_callback(callback: CallbackQuery, state: FSMContext):
+    if not await is_user_registered(callback.from_user.id):
+        text = "Сначала нужно зарегистрироваться."
+        await callback.message.edit_text(
+            text,
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
+        )
+        await callback.answer()
+        return
+
+    text = (
+        "⚠️ <b>Подтверждение отвязки Telegram</b>\n\n"
+        "После отвязки бот больше не будет связан с вашим аккаунтом.\n"
+        "Сам аккаунт в сервисе сохранится.\n"
+        "Текущее меню будет удалено.\n\n"
+        "Вы точно хотите отвязать Telegram?"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=confirm_unlink_telegram_keyboard(),
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="confirm_unlink",
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "confirm_delete_account")
+async def confirm_delete_account_callback(callback: CallbackQuery, state: FSMContext):
+    if not await is_user_registered(callback.from_user.id):
+        text = "Сначала нужно зарегистрироваться."
+        await callback.message.edit_text(
+            text,
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
+        )
+        await callback.answer()
+        return
+
+    text = (
+        "⚠️ <b>Подтверждение удаления аккаунта</b>\n\n"
+        "После удаления аккаунт и все связанные данные будут безвозвратно удалены.\n"
+        "Текущее меню будет удалено.\n\n"
+        "Вы точно хотите удалить аккаунт?"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=confirm_delete_account_keyboard(),
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="confirm_delete_account",
+    )
+
+    await callback.answer()
 
 
 @router.message(Command("link"))
 async def cmd_link(message: Message, state: FSMContext):
     await state.set_state(LinkWebState.waiting_for_link_code)
 
-    sent = await message.answer(
+    text = (
         "🔑 <b>Вход по коду из веб-версии</b>\n\n"
         "1. Войдите в веб-версию под своим аккаунтом (email + пароль).\n"
         "2. Получите одноразовый код для связи с Telegram.\n"
-        "3. Отправьте этот код следующим сообщением.",
+        "3. Отправьте этот код следующим сообщением."
+    )
+
+    sent = await message.answer(
+        text,
         parse_mode="HTML",
         reply_markup=back_keyboard(),
     )
-    await state.update_data(link_message_id=sent.message_id)
+
+    await state.update_data(
+        link_message_id=sent.message_id,
+        current_message_id=sent.message_id,
+        current_text=text,
+        current_keyboard="back",
+    )
 
 
 # ============================================================
@@ -254,16 +465,22 @@ async def cmd_link(message: Message, state: FSMContext):
 # ============================================================
 
 @router.callback_query(F.data == "start_register")
-async def start_register_callback(callback: CallbackQuery):
+async def start_register_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
     username = callback.from_user.username
     first_name = callback.from_user.first_name
     last_name = callback.from_user.last_name
 
     if await is_user_registered(telegram_id):
+        text = "✅ Ваш Telegram уже зарегистрирован и привязан к аккаунту."
         await callback.message.edit_text(
-            "✅ Ваш Telegram уже зарегистрирован и привязан к аккаунту.",
+            text,
             reply_markup=start_keyboard(is_registered=True),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
@@ -302,13 +519,24 @@ async def start_register_callback(callback: CallbackQuery):
         )
         await session.commit()
 
-    await callback.message.edit_text(
+    text = (
         "✅ <b>Регистрация выполнена успешно!</b>\n\n"
         "Telegram сохранён и привязан к вашему аккаунту.\n"
-        "Теперь вы можете пользоваться функциями бота.",
+        "Теперь вы можете пользоваться функциями бота."
+    )
+
+    await callback.message.edit_text(
+        text,
         parse_mode="HTML",
         reply_markup=start_keyboard(is_registered=True),
     )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="start",
+    )
+
     await callback.answer()
 
 
@@ -332,17 +560,27 @@ async def get_user_id_by_telegram(telegram_id: int) -> str | None:
 async def start_link_from_web_callback(callback: CallbackQuery, state: FSMContext):
     await state.set_state(LinkWebState.waiting_for_link_code)
 
-    await callback.message.edit_text(
+    text = (
         "🔑 <b>Вход по коду из веб-версии</b>\n\n"
         "1. Войдите в веб-версию по email и паролю.\n"
         "2. Получите одноразовый код для связи с Telegram.\n"
         "3. Отправьте этот код следующим сообщением.\n\n"
-        "⚠️ Код действует ограниченное время.",
+        "⚠️ Код действует ограниченное время."
+    )
+
+    await callback.message.edit_text(
+        text,
         parse_mode="HTML",
         reply_markup=link_from_web_keyboard(),
     )
 
-    await state.update_data(link_message_id=callback.message.message_id)
+    await state.update_data(
+        link_message_id=callback.message.message_id,
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="link_from_web",
+    )
+
     await callback.answer()
 
 
@@ -362,10 +600,18 @@ async def open_profile_callback(callback: CallbackQuery, state: FSMContext):
     profile_text = await get_profile_text(telegram_id)
 
     if profile_text is None or row is None:
-        await callback.message.edit_text(
+        text = (
             "Профиль ещё не создан.\n"
-            "Сначала нажмите кнопку «📝 Зарегистрироваться».",
+            "Сначала нажмите кнопку «📝 Зарегистрироваться»."
+        )
+        await callback.message.edit_text(
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
@@ -376,18 +622,34 @@ async def open_profile_callback(callback: CallbackQuery, state: FSMContext):
         reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
     )
 
-    await state.update_data(profile_message_id=callback.message.message_id)
+    await state.update_data(
+        profile_message_id=callback.message.message_id,
+        current_message_id=callback.message.message_id,
+        current_text=profile_text,
+        current_keyboard="profile",
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "edit_last_name")
 async def edit_last_name_callback(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ProfileEditState.waiting_for_last_name)
-    await state.update_data(profile_message_id=callback.message.message_id)
+
+    text = (
+        "✏️ <b>Редактирование фамилии</b>\n\n"
+        "Введите фамилию следующим сообщением."
+    )
+
+    await state.update_data(
+        profile_message_id=callback.message.message_id,
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="cancel",
+    )
 
     await callback.message.edit_text(
-        "✏️ <b>Редактирование фамилии</b>\n\n"
-        "Введите фамилию следующим сообщением.",
+        text,
         parse_mode="HTML",
         reply_markup=cancel_input_keyboard(),
     )
@@ -403,9 +665,15 @@ async def cancel_profile_edit_callback(callback: CallbackQuery, state: FSMContex
     profile_text = await get_profile_text(telegram_id)
 
     if profile_text is None or row is None:
+        text = "Профиль ещё не создан."
         await callback.message.edit_text(
-            "Профиль ещё не создан.",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
@@ -415,83 +683,51 @@ async def cancel_profile_edit_callback(callback: CallbackQuery, state: FSMContex
         parse_mode="HTML",
         reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
     )
-    await callback.answer("Редактирование отменено")
 
-
-@router.message(ProfileEditState.waiting_for_last_name)
-async def process_last_name(message: Message, state: FSMContext):
-    if not message.text:
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        return
-
-    telegram_id = message.from_user.id
-    last_name = message.text.strip()
-    data = await state.get_data()
-    profile_message_id = data.get("profile_message_id")
-
-    async with SessionLocal() as session:
-        await session.execute(
-            text(
-                """
-                UPDATE telegram_accounts
-                SET last_name = :last_name
-                WHERE telegram_id = :telegram_id
-                """
-            ),
-            {
-                "last_name": last_name,
-                "telegram_id": telegram_id,
-            },
-        )
-        await session.commit()
-
-    await state.clear()
-
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    row = await get_profile_row(telegram_id)
-    profile_text = await get_profile_text(telegram_id)
-
-    updated_text = "✅ Фамилия обновлена.\n\n" + (profile_text or "")
-
-    if profile_message_id:
-        try:
-            await message.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=profile_message_id,
-                text=updated_text,
-                parse_mode="HTML",
-                reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
-            )
-            return
-        except Exception:
-            pass
-
-    await message.answer(
-        updated_text,
-        parse_mode="HTML",
-        reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+    await state.update_data(
+        profile_message_id=callback.message.message_id,
+        current_message_id=callback.message.message_id,
+        current_text=profile_text,
+        current_keyboard="profile",
     )
+
+    await callback.answer("Редактирование отменено")
 
 
 @router.callback_query(F.data == "edit_first_name")
 async def edit_first_name_callback(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ProfileEditState.waiting_for_first_name)
-    await state.update_data(profile_message_id=callback.message.message_id)
+
+    text = (
+        "✍️ <b>Редактирование имени</b>\n\n"
+        "Введите имя следующим сообщением."
+    )
+
+    await state.update_data(
+        profile_message_id=callback.message.message_id,
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="cancel",
+    )
 
     await callback.message.edit_text(
-        "✍️ <b>Редактирование имени</b>\n\n"
-        "Введите имя следующим сообщением.",
+        text,
         parse_mode="HTML",
         reply_markup=cancel_input_keyboard(),
     )
     await callback.answer()
+
+
+def is_valid_name(name: str) -> bool:
+    """
+    Разрешаем только буквы (включая кириллицу), пробелы, дефисы
+    Длина: 1-50 символов
+    """
+    if not name or len(name) > 50:
+        return False
+    pattern = r"^[a-zA-Zа-яА-ЯёЁ\s\-]+$"
+    return bool(re.match(pattern, name))
+
 
 
 @router.message(ProfileEditState.waiting_for_first_name)
@@ -507,6 +743,57 @@ async def process_first_name(message: Message, state: FSMContext):
     first_name = message.text.strip()
     data = await state.get_data()
     profile_message_id = data.get("profile_message_id")
+
+    if not is_valid_name(first_name):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+        row = await get_profile_row(telegram_id)
+        current_profile = await get_profile_text(telegram_id)
+
+        error_text = (
+            "✍️ <b>Редактирование имени</b>\n\n"
+            "❌ Имя не изменилось, так как оно может содержать только буквы, пробелы и дефисы (до 50 символов)\n"
+            "Пожалуйста, введите корректное имя.\n\n"
+            f"{current_profile}"
+        )
+
+        if profile_message_id:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=profile_message_id,
+                    text=error_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+                )
+
+                await state.clear()
+                await state.update_data(
+                    profile_message_id=profile_message_id,
+                    current_message_id=profile_message_id,
+                    current_text=error_text,
+                    current_keyboard="profile",
+                )
+                return
+            except Exception:
+                pass
+
+        sent = await message.answer(
+            error_text,
+            parse_mode="HTML",
+            reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+        )
+        await state.clear()
+        await state.update_data(
+            profile_message_id=sent.message_id,
+            current_message_id=sent.message_id,
+            current_text=error_text,
+            current_keyboard="profile",
+        )
+        return
 
     async with SessionLocal() as session:
         await session.execute(
@@ -534,7 +821,11 @@ async def process_first_name(message: Message, state: FSMContext):
     row = await get_profile_row(telegram_id)
     profile_text = await get_profile_text(telegram_id)
 
-    updated_text = "✅ Имя обновлено.\n\n" + (profile_text or "")
+    updated_text = (
+        f"{profile_text.split(chr(10) + chr(10))[0]}\n\n"
+        f"✅ Имя обновлено\n\n"
+        f"{chr(10).join(profile_text.split(chr(10) + chr(10))[1:])}"
+    )
 
     if profile_message_id:
         try:
@@ -545,14 +836,154 @@ async def process_first_name(message: Message, state: FSMContext):
                 parse_mode="HTML",
                 reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
             )
+            await state.update_data(
+                profile_message_id=profile_message_id,
+                current_message_id=profile_message_id,
+                current_text=updated_text,
+                current_keyboard="profile",
+            )
             return
         except Exception:
             pass
 
-    await message.answer(
+    sent = await message.answer(
         updated_text,
         parse_mode="HTML",
         reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+    )
+    await state.update_data(
+        profile_message_id=sent.message_id,
+        current_message_id=sent.message_id,
+        current_text=updated_text,
+        current_keyboard="profile",
+    )
+
+
+@router.message(ProfileEditState.waiting_for_last_name)
+async def process_last_name(message: Message, state: FSMContext):
+    if not message.text:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+
+    telegram_id = message.from_user.id
+    last_name = message.text.strip()
+    data = await state.get_data()
+    profile_message_id = data.get("profile_message_id")
+
+    if not is_valid_name(last_name):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+        row = await get_profile_row(telegram_id)
+        current_profile = await get_profile_text(telegram_id)
+
+        error_text = (
+            "✏️ <b>Редактирование фамилии</b>\n\n"
+            "❌ Фамилия не изменилась, так как она может содержать только буквы, пробелы и дефисы (до 50 символов)\n"
+            "Пожалуйста, введите корректную фамилию\n\n"
+            f"{current_profile}"
+        )
+
+        if profile_message_id:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=profile_message_id,
+                    text=error_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+                )
+                await state.clear()
+                await state.update_data(
+                    profile_message_id=profile_message_id,
+                    current_message_id=profile_message_id,
+                    current_text=error_text,
+                    current_keyboard="profile",
+                )
+                return
+            except Exception:
+                pass
+
+        sent = await message.answer(
+            error_text,
+            parse_mode="HTML",
+            reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+        )
+        await state.clear()
+        await state.update_data(
+            profile_message_id=sent.message_id,
+            current_message_id=sent.message_id,
+            current_text=error_text,
+            current_keyboard="profile",
+        )
+        return
+
+    async with SessionLocal() as session:
+        await session.execute(
+            text(
+                """
+                UPDATE telegram_accounts
+                SET last_name = :last_name
+                WHERE telegram_id = :telegram_id
+                """
+            ),
+            {
+                "last_name": last_name,
+                "telegram_id": telegram_id,
+            },
+        )
+        await session.commit()
+
+    await state.clear()
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    row = await get_profile_row(telegram_id)
+    profile_text = await get_profile_text(telegram_id)
+
+    updated_text = (
+        f"{profile_text.split(chr(10) + chr(10))[0]}\n\n"
+        f"✅ Фамилия обновлена\n\n"
+        f"{chr(10).join(profile_text.split(chr(10) + chr(10))[1:])}"
+    )
+
+    if profile_message_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=profile_message_id,
+                text=updated_text,
+                parse_mode="HTML",
+                reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+            )
+            await state.update_data(
+                profile_message_id=profile_message_id,
+                current_message_id=profile_message_id,
+                current_text=updated_text,
+                current_keyboard="profile",
+            )
+            return
+        except Exception:
+            pass
+
+    sent = await message.answer(
+        updated_text,
+        parse_mode="HTML",
+        reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+    )
+    await state.update_data(
+        profile_message_id=sent.message_id,
+        current_message_id=sent.message_id,
+        current_text=updated_text,
+        current_keyboard="profile",
     )
 
 
@@ -739,8 +1170,8 @@ async def process_link_code(message: Message, state: FSMContext):
     await state.clear()
 
     success_text = (
-        "✅ <b>Telegram успешно привязан к аккаунту из веб-версии.</b>\n\n"
-        "Теперь вы можете пользоваться ботом и веб-версией как одним аккаунтом."
+        "✅ <b>Telegram успешно привязан к аккаунту из веб-версии</b>\n\n"
+        "Теперь вы можете пользоваться ботом и веб-версией как одним аккаунтом"
     )
 
     if link_message_id:
@@ -762,15 +1193,20 @@ async def process_link_code(message: Message, state: FSMContext):
         reply_markup=start_keyboard(is_registered=True),
     )
 
-
 @router.callback_query(F.data == "generate_web_link")
 async def generate_web_link_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
 
     if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
@@ -788,10 +1224,18 @@ async def generate_web_link_callback(callback: CallbackQuery, state: FSMContext)
                         resp.status,
                         resp_text,
                     )
-                    await callback.message.edit_text(
+                    text = (
                         "😔 Не удалось сгенерировать ссылку для входа в веб. "
-                        "Попробуйте позже.",
-                        reply_markup=back_keyboard(),
+                        "Попробуйте позже."
+                    )
+                    await callback.message.edit_text(
+                        text,
+                        reply_markup=back_to_link_web_keyboard(),
+                    )
+                    await state.update_data(
+                        current_message_id=callback.message.message_id,
+                        current_text=text,
+                        current_keyboard="back_to_link_web",
                     )
                     await callback.answer()
                     return
@@ -799,9 +1243,15 @@ async def generate_web_link_callback(callback: CallbackQuery, state: FSMContext)
                 data = json.loads(resp_text)
     except Exception as e:
         logger.exception("Error in generate_web_link_callback: %s", e)
+        text = "😔 Не удалось связаться с сервером. Попробуйте позже."
         await callback.message.edit_text(
-            "😔 Не удалось связаться с сервером. Попробуйте позже.",
-            reply_markup=back_keyboard(),
+            text,
+            reply_markup=back_to_link_web_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back_to_link_web",
         )
         await callback.answer()
         return
@@ -809,9 +1259,15 @@ async def generate_web_link_callback(callback: CallbackQuery, state: FSMContext)
     access_token = data.get("access_token")
     if not access_token:
         logger.error("dev-token-for-telegram returned no access_token: %s", data)
+        text = "😔 Сервер не вернул токен. Попробуйте позже."
         await callback.message.edit_text(
-            "😔 Сервер не вернул токен. Попробуйте позже.",
-            reply_markup=back_keyboard(),
+            text,
+            reply_markup=back_to_link_web_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back_to_link_web",
         )
         await callback.answer()
         return
@@ -819,54 +1275,90 @@ async def generate_web_link_callback(callback: CallbackQuery, state: FSMContext)
     web_base_url = "http://127.0.0.1"
     link_url = f"{web_base_url}/from-telegram?token={access_token}"
 
-    await callback.message.edit_text(
+    text = (
         "🔗 <b>Ссылка для входа в веб-версию</b>\n\n"
         "Нажмите на ссылку ниже, чтобы открыть веб-версию и "
         "создать веб-аккаунт, привязанный к вашему Telegram.\n\n"
-        f"{link_url}",
+        f"{link_url}"
+    )
+
+    await callback.message.edit_text(
+        text,
         parse_mode="HTML",
-        reply_markup=back_keyboard(),
+        reply_markup=back_to_link_web_keyboard(),
         disable_web_page_preview=False,
     )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back_to_link_web",
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "link_web")
 async def link_web_callback(callback: CallbackQuery, state: FSMContext):
     if not await is_user_registered(callback.from_user.id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
 
     await state.clear()
 
-    await callback.message.edit_text(
+    text = (
         "🔗 <b>Связь с веб-версией</b>\n\n"
         "Варианты:\n"
         "1. Нажмите «🔑 Сгенерировать ссылку для входа в веб» — "
         "бот создаст личную ссылку, по которой вы сможете зайти в веб-версию, "
         "привязанную к вашему Telegram.\n"
         "2. Или откройте веб-версию по ссылке ниже и используйте сценарий "
-        "«сначала веб → потом ТГ по коду». Для этого нужно будет сначала удалить ТГ-аккаунт и получить код до регистрации.",
+        "«сначала веб → потом ТГ по коду». Для этого нужно будет сначала удалить ТГ-аккаунт и получить код до регистрации."
+    )
+
+    await callback.message.edit_text(
+        text,
         parse_mode="HTML",
         reply_markup=link_web_keyboard(),
         disable_web_page_preview=True,
     )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="link_web",
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "open_help")
-async def open_help_callback(callback: CallbackQuery):
+async def open_help_callback(callback: CallbackQuery, state: FSMContext):
+    text = get_help_text()
+
     await callback.message.edit_text(
-        get_help_text(),
+        text,
         parse_mode="HTML",
         reply_markup=back_keyboard(),
     )
-    await callback.answer()
 
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back",
+    )
+
+    await callback.answer()
 
 # ============================================================
 # Загрузка фото 
@@ -877,14 +1369,19 @@ async def upload_photo_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
 
     if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
 
-    # Получаем токен для API
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -896,9 +1393,15 @@ async def upload_photo_callback(callback: CallbackQuery, state: FSMContext):
                         "upload_photo: dev-token failed status=%s",
                         resp.status,
                     )
+                    text = "😔 Не удалось получить токен для загрузки. Попробуйте позже."
                     await callback.message.edit_text(
-                        "😔 Не удалось получить токен для загрузки. Попробуйте позже.",
+                        text,
                         reply_markup=back_keyboard(),
+                    )
+                    await state.update_data(
+                        current_message_id=callback.message.message_id,
+                        current_text=text,
+                        current_keyboard="back",
                     )
                     await callback.answer()
                     return
@@ -906,12 +1409,27 @@ async def upload_photo_callback(callback: CallbackQuery, state: FSMContext):
                 access_token = data["access_token"]
     except Exception as e:
         logger.exception("upload_photo: ошибка получения токена: %s", e)
+        text = "😔 Не удалось связаться с сервером. Попробуйте позже."
         await callback.message.edit_text(
-            "😔 Не удалось связаться с сервером. Попробуйте позже.",
+            text,
             reply_markup=back_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
         )
         await callback.answer()
         return
+
+    text = (
+        "📸 <b>Загрузка фото</b>\n\n"
+        "Отправьте одно или несколько фотографий подряд.\n"
+        "Я принимаю форматы: JPG, PNG, HEIC, WEBP — и автоматически "
+        "конвертирую их в JPEG для дальнейшей работы.\n\n"
+        "Если отправите не фото, я удалю сообщение и напомню, "
+        "что можно загружать только изображения."
+    )
 
     await state.set_state(UploadPhotosState.waiting_for_photos)
     await state.update_data(
@@ -919,16 +1437,14 @@ async def upload_photo_callback(callback: CallbackQuery, state: FSMContext):
         uploaded_count=0,
         failed_count=0,
         warning_shown=False,
-        access_token=access_token,  # сохраняем токен в state
+        access_token=access_token,
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back",
     )
 
     await callback.message.edit_text(
-        "📸 <b>Загрузка фото</b>\n\n"
-        "Отправьте одно или несколько фотографий подряд.\n"
-        "Я принимаю форматы: JPG, PNG, HEIC, WEBP — и автоматически "
-        "конвертирую их в JPEG для дальнейшей работы.\n\n"
-        "Если отправите не фото, я удалю сообщение и напомню, "
-        "что можно загружать только изображения.",
+        text,
         parse_mode="HTML",
         reply_markup=back_keyboard(),
     )
@@ -949,12 +1465,20 @@ async def _update_upload_summary_message(
         return
 
     if uploaded_count > 0 and failed_count == 0:
-        text = (
-            "✅ <b>Фото добавлены в ваш гардероб.</b>\n\n"
-            f"Успешно сохранено: <b>{uploaded_count}</b> фото.\n"
-            "Можете отправить ещё фото или нажать «Назад», "
-            "чтобы вернуться в главное меню."
-        )
+        if uploaded_count == 1:
+            text = (
+                "✅ <b>Фото добавлено в ваш гардероб.</b>\n\n"
+                "Успешно сохранено: <b>1</b> фото.\n"
+                "Можете отправить ещё фото или нажать «Назад», "
+                "чтобы вернуться в главное меню."
+            )
+        else:
+            text = (
+                "✅ <b>Фото добавлены в ваш гардероб.</b>\n\n"
+                f"Успешно сохранено: <b>{uploaded_count}</b> фото.\n"
+                "Можете отправить ещё фото или нажать «Назад», "
+                "чтобы вернуться в главное меню."
+            )
     elif uploaded_count > 0 and failed_count > 0:
         text = (
             "⚠️ <b>Часть фото не удалось сохранить.</b>\n\n"
@@ -1004,7 +1528,6 @@ async def handle_uploaded_photos(message: Message, state: FSMContext):
         access_token = data.get("access_token")
 
         if not message.photo:
-            await asyncio.sleep(0.2)
             try:
                 await message.delete()
             except Exception as e:
@@ -1077,6 +1600,7 @@ async def handle_uploaded_photos(message: Message, state: FSMContext):
             logger.error("Не удалось скачать файл для file_id=%s: %s", telegram_file_id, e)
             failed_count += 1
 
+            # ЗАМЕЧАНИЕ 8: Фото удаляем с задержкой 0.2 секунды
             await asyncio.sleep(0.2)
             try:
                 await message.delete()
@@ -1129,6 +1653,7 @@ async def handle_uploaded_photos(message: Message, state: FSMContext):
             logger.exception("Ошибка при отправке фото в API для file_id=%s: %s", telegram_file_id, e)
             failed_count += 1
 
+        # ЗАМЕЧАНИЕ 8: Фото удаляем с задержкой 0.2 секунды
         await asyncio.sleep(0.2)
         try:
             await message.delete()
@@ -1148,10 +1673,10 @@ async def handle_uploaded_photos(message: Message, state: FSMContext):
             failed_count=failed_count,
         )
 
-# ============================================================
-# Просмотр фото, рекомендации, собрать образ 
-# ============================================================
 
+# ============================================================
+# Просмотр фото, удаление
+# ============================================================
 
 async def _delete_photo_messages(bot, chat_id: int, photo_message_ids: list[int]):
     """
@@ -1224,9 +1749,15 @@ async def view_photos_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
 
     if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
@@ -1235,9 +1766,15 @@ async def view_photos_callback(callback: CallbackQuery, state: FSMContext):
 
     access_token = await _get_access_token_for_telegram(telegram_id)
     if not access_token:
+        text = "😔 Не удалось получить токен для просмотра фото. Попробуйте позже."
         await callback.message.edit_text(
-            "😔 Не удалось получить токен для просмотра фото. Попробуйте позже.",
+            text,
             reply_markup=back_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
         )
         await callback.answer()
         return
@@ -1246,21 +1783,39 @@ async def view_photos_callback(callback: CallbackQuery, state: FSMContext):
     total = data.get("total", 0)
 
     if total == 0:
-        await callback.message.edit_text(
+        text = (
             "🖼 <b>Просмотр фото</b>\n\n"
-            "У вас пока нет загруженных фото.",
+            "У вас пока нет загруженных фото."
+        )
+        await callback.message.edit_text(
+            text,
             parse_mode="HTML",
             reply_markup=back_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
         )
         await callback.answer()
         return
 
-    await state.update_data(total_photos=total, access_token=access_token)
-
-    await callback.message.edit_text(
+    text = (
         "🖼 <b>Просмотр фото</b>\n\n"
         f"Сейчас у вас сохранено <b>{total}</b> фото.\n"
-        "Выберите, какие из них показать.",
+        "Выберите, какие из них показать."
+    )
+
+    await state.update_data(
+        total_photos=total,
+        access_token=access_token,
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="view_photos",
+    )
+
+    await callback.message.edit_text(
+        text,
         parse_mode="HTML",
         reply_markup=view_photos_keyboard(total),
     )
@@ -1271,9 +1826,15 @@ async def view_photos_callback(callback: CallbackQuery, state: FSMContext):
 async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
     if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
@@ -1285,19 +1846,23 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
     access_token = data_state.get("access_token")
     total = data_state.get("total_photos")
 
-    # Если токена нет в state, получаем заново
     if not access_token:
         access_token = await _get_access_token_for_telegram(telegram_id)
         if not access_token:
+            text = "😔 Не удалось получить токен для просмотра фото. Попробуйте позже."
             await callback.message.edit_text(
-                "😔 Не удалось получить токен для просмотра фото. Попробуйте позже.",
+                text,
                 reply_markup=back_keyboard(),
+            )
+            await state.update_data(
+                current_message_id=callback.message.message_id,
+                current_text=text,
+                current_keyboard="back",
             )
             await callback.answer()
             return
         await state.update_data(access_token=access_token)
 
-    # Если total нет, запрашиваем
     if total is None:
         resp = await _fetch_photos_page(
             access_token=access_token,
@@ -1315,7 +1880,6 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
     items = resp.get("items", [])
     total = resp.get("total", total)
 
-    # Удаляем старые сообщения с фото и меню
     old_ids = data_state.get("photo_message_ids", [])
     old_menu_id = data_state.get("menu_message_id")
 
@@ -1339,7 +1903,6 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
             f"Всего сохранено: <b>{total}</b>."
         )
 
-        # Если фото нет — редактируем старое сообщение
         try:
             await callback.message.edit_text(
                 text,
@@ -1350,16 +1913,21 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
             if "message is not modified" not in str(e).lower():
                 logger.warning("Не удалось обновить текст view_photos_page (нет фото): %s", e)
 
-        await state.update_data(photo_message_ids=[], menu_message_id=None, total_photos=total)
+        await state.update_data(
+            photo_message_ids=[],
+            menu_message_id=None,
+            total_photos=total,
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="view_photos",
+        )
         await callback.answer()
         return
 
-    # Отправляем все фото из диапазона с кнопкой "Удалить" под каждым
     for info in items:
         telegram_file_id = info.get("telegram_file_id")
         photo_id = info["id"]
 
-        # Inline-кнопка под каждым фото
         photo_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_photo_{photo_id}")],
         ])
@@ -1377,7 +1945,6 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
             )
         new_ids.append(msg.message_id)
 
-    # Формируем текст меню
     if total <= 10 and page == 1:
         text = (
             "🖼 <b>Просмотр фото</b>\n\n"
@@ -1394,24 +1961,24 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
             f"Всего сохранено: <b>{total}</b>."
         )
 
-    # Отправляем меню ОТДЕЛЬНЫМ сообщением под последним фото
     menu_msg = await callback.message.answer(
         text,
         parse_mode="HTML",
         reply_markup=view_photos_keyboard(total),
     )
 
-    # Удаляем старое текстовое сообщение (то, которое редактировали раньше)
     try:
         await callback.message.delete()
     except Exception:
         pass
 
-    # Сохраняем ID фото и меню в state
     await state.update_data(
         photo_message_ids=new_ids,
         menu_message_id=menu_msg.message_id,
         total_photos=total,
+        current_message_id=menu_msg.message_id,
+        current_text=text,
+        current_keyboard="view_photos",
     )
 
     await callback.answer()
@@ -1421,9 +1988,15 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
 async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
     if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
@@ -1431,13 +2004,18 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
     data_state = await state.get_data()
     access_token = data_state.get("access_token")
 
-    # Если токена нет в state, получаем заново
     if not access_token:
         access_token = await _get_access_token_for_telegram(telegram_id)
         if not access_token:
+            text = "😔 Не удалось получить токен для просмотра фото. Попробуйте позже."
             await callback.message.edit_text(
-                "😔 Не удалось получить токен для просмотра фото. Попробуйте позже.",
+                text,
                 reply_markup=back_keyboard(),
+            )
+            await state.update_data(
+                current_message_id=callback.message.message_id,
+                current_text=text,
+                current_keyboard="back",
             )
             await callback.answer()
             return
@@ -1451,7 +2029,6 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
     items = resp.get("items", [])
     total = resp.get("total", 0)
 
-    # Удаляем старые сообщения с фото и меню
     old_ids = data_state.get("photo_message_ids", [])
     old_menu_id = data_state.get("menu_message_id")
 
@@ -1471,7 +2048,6 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
     if total == 0 or not items:
         text = "🖼 <b>Просмотр фото</b>\n\n" "У вас пока нет загруженных фото."
 
-        # Если фото нет — редактируем старое сообщение
         try:
             await callback.message.edit_text(
                 text,
@@ -1482,16 +2058,21 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
             if "message is not modified" not in str(e).lower():
                 logger.warning("Не удалось обновить текст view_photos_latest (0): %s", e)
 
-        await state.update_data(photo_message_ids=[], menu_message_id=None, total_photos=0)
+        await state.update_data(
+            photo_message_ids=[],
+            menu_message_id=None,
+            total_photos=0,
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
+        )
         await callback.answer()
         return
 
-    # Отправляем фото с кнопкой "Удалить" под каждым
     for info in items:
         telegram_file_id = info.get("telegram_file_id")
         photo_id = info["id"]
 
-        # Inline-кнопка под каждым фото
         photo_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_photo_{photo_id}")],
         ])
@@ -1509,7 +2090,6 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
             )
         new_ids.append(msg.message_id)
 
-    # Формируем текст меню
     shown = len(items)
     if total == 1:
         text = (
@@ -1528,24 +2108,24 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
             f"Сейчас показаны <b>{shown}</b> самых новых."
         )
 
-    # Отправляем меню ОТДЕЛЬНЫМ сообщением под последним фото
     menu_msg = await callback.message.answer(
         text,
         parse_mode="HTML",
         reply_markup=view_photos_keyboard(total),
     )
 
-    # Удаляем старое текстовое сообщение
     try:
         await callback.message.delete()
     except Exception:
         pass
 
-    # Сохраняем ID фото и меню в state
     await state.update_data(
         photo_message_ids=new_ids,
         menu_message_id=menu_msg.message_id,
         total_photos=total,
+        current_message_id=menu_msg.message_id,
+        current_text=text,
+        current_keyboard="view_photos",
     )
 
     await callback.answer()
@@ -1554,7 +2134,7 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
 @router.callback_query(F.data.regexp(r"^delete_photo_[a-f0-9\-]+$"))
 async def delete_single_photo_callback(callback: CallbackQuery, state: FSMContext):
     """
-    Удаляет одно фото из БД и чата.
+    Удаляет одно фото из БД и чата
     """
     telegram_id = callback.from_user.id
 
@@ -1562,10 +2142,8 @@ async def delete_single_photo_callback(callback: CallbackQuery, state: FSMContex
         await callback.answer("Сначала зарегистрируйтесь", show_alert=True)
         return
 
-    # Извлекаем photo_id из callback_data
     photo_id = callback.data.replace("delete_photo_", "")
 
-    # Помечаем фото как неактивное в БД
     async with SessionLocal() as session:
         result = await session.execute(
             text(
@@ -1590,24 +2168,20 @@ async def delete_single_photo_callback(callback: CallbackQuery, state: FSMContex
         await callback.answer("Фото не найдено или уже удалено", show_alert=True)
         return
 
-    # Удаляем сообщение из чата
     try:
         await callback.message.delete()
     except Exception as e:
         logger.warning("Не удалось удалить сообщение с фото: %s", e)
 
-    # Обновляем счётчик в state
     data = await state.get_data()
     total_photos = data.get("total_photos", 0)
     if total_photos > 0:
         total_photos -= 1
         await state.update_data(total_photos=total_photos)
 
-    # Обновляем меню (если оно есть в state)
     menu_message_id = data.get("menu_message_id")
     if menu_message_id and total_photos >= 0:
         try:
-            # Формируем новый текст меню
             if total_photos == 0:
                 new_text = "🖼 <b>Просмотр фото</b>\n\nУ вас пока нет загруженных фото."
                 new_keyboard = back_keyboard()
@@ -1634,21 +2208,235 @@ async def delete_single_photo_callback(callback: CallbackQuery, state: FSMContex
 
     await callback.answer("🗑 Фото удалено")
 
+# ============================================================
+# Удаление всех фото
+# ============================================================
 
-@router.callback_query(F.data == "get_recommendations")
-async def get_recommendations_callback(callback: CallbackQuery):
-    if not await is_user_registered(callback.from_user.id):
+@router.callback_query(F.data == "confirm_delete_all_photos")
+async def confirm_delete_all_photos_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
 
+    access_token = await _get_access_token_for_telegram(telegram_id)
+    if not access_token:
+        text = "😔 Не удалось получить токен. Попробуйте позже."
+        await callback.message.edit_text(
+            text,
+            reply_markup=back_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
+        )
+        await callback.answer()
+        return
+
+    async with aiohttp.ClientSession() as session:
+        headers = {"Authorization": f"Bearer {access_token}"}
+        async with session.get(
+            f"{API_BASE_URL}/photos?page=1&page_size=1",
+            headers=headers,
+        ) as resp:
+            if resp.status != 200:
+                total = 0
+            else:
+                data = await resp.json()
+                total = data.get("total", 0)
+
+    if total == 0:
+        text = "У вас пока нет загруженных фото."
+        await callback.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=back_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
+        )
+        await callback.answer()
+        return
+
+    text = (
+        f"⚠️ <b>Удаление всех фото</b>\n\n"
+        f"У вас сохранено <b>{total}</b> фото.\n"
+        f"Вы уверены, что хотите удалить их все?\n\n"
+        f"Это действие <b>необратимо</b>."
+    )
+
+    await state.update_data(
+        access_token=access_token,
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="confirm_delete_all_photos",
+    )
+
     await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=confirm_delete_photos_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "delete_all_photos_confirmed")
+async def delete_all_photos_confirmed_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться."
+        await callback.message.edit_text(
+            text,
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
+        )
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    access_token = data.get("access_token")
+
+    if not access_token:
+        access_token = await _get_access_token_for_telegram(telegram_id)
+        if not access_token:
+            text = "😔 Не удалось получить токен. Попробуйте позже."
+            await callback.message.edit_text(
+                text,
+                reply_markup=back_keyboard(),
+            )
+            await state.update_data(
+                current_message_id=callback.message.message_id,
+                current_text=text,
+                current_keyboard="back",
+            )
+            await callback.answer()
+            return
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bearer {access_token}"}
+            async with session.delete(
+                f"{API_BASE_URL}/photos/all",
+                headers=headers,
+            ) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        "delete_all_photos: status=%s telegram_id=%s",
+                        resp.status,
+                        telegram_id,
+                    )
+                    text = "😔 Не удалось удалить фото. Попробуйте позже"
+                    await callback.message.edit_text(
+                        text,
+                        reply_markup=back_keyboard(),
+                    )
+                    await state.update_data(
+                        current_message_id=callback.message.message_id,
+                        current_text=text,
+                        current_keyboard="back",
+                    )
+                    await callback.answer()
+                    return
+    except Exception as e:
+        logger.exception("delete_all_photos: exception: %s", e)
+        text = "😔 Не удалось связаться с сервером. Попробуйте позже"
+        await callback.message.edit_text(
+            text,
+            reply_markup=back_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
+        )
+        await callback.answer()
+        return
+
+    photo_message_ids = data.get("photo_message_ids", [])
+    for mid in photo_message_ids:
+        try:
+            await callback.bot.delete_message(
+                chat_id=callback.message.chat.id,
+                message_id=mid,
+            )
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass
+
+    text = (
+        "✅ <b>Все фото удалены.</b>\n\n"
+        "Теперь ваш гардероб пуст"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=back_keyboard(),
+    )
+
+    await state.update_data(
+        photo_message_ids=[],
+        menu_message_id=None,
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back",
+    )
+
+    await callback.answer()
+
+# ============================================================
+# Рекомендации, сбор образа
+# ============================================================
+
+@router.callback_query(F.data == "get_recommendations")
+async def get_recommendations_callback(callback: CallbackQuery, state: FSMContext):
+    if not await is_user_registered(callback.from_user.id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
+        await callback.message.edit_text(
+            text,
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
+        )
+        await callback.answer()
+        return
+
+    text = (
         "👗 <b>Рекомендации по одежде</b>\n\n"
         "Здесь будут рекомендации на основе ваших вещей, фото и предпочтений.\n"
-        "Сейчас функция находится в разработке.",
+        "Сейчас функция находится в разработке."
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back",
+    )
+
+    await callback.message.edit_text(
+        text,
         parse_mode="HTML",
         reply_markup=back_keyboard(),
     )
@@ -1656,24 +2444,44 @@ async def get_recommendations_callback(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "build_outfit")
-async def build_outfit_callback(callback: CallbackQuery):
+async def build_outfit_callback(callback: CallbackQuery, state: FSMContext):
     if not await is_user_registered(callback.from_user.id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            text,
             reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
         )
         await callback.answer()
         return
 
-    await callback.message.edit_text(
+    text = (
         "🧥 <b>Собрать образ</b>\n\n"
         "Здесь бот будет помогать составлять готовый комплект одежды.\n"
-        "Сейчас функция находится в разработке.",
+        "Сейчас функция находится в разработке."
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back",
+    )
+
+    await callback.message.edit_text(
+        text,
         parse_mode="HTML",
         reply_markup=back_keyboard(),
     )
     await callback.answer()
 
+
+# ============================================================
+# Обработчик неожиданных сообщений
+# ============================================================
 
 @router.message()
 async def unexpected_message_handler(message: Message, state: FSMContext):
@@ -1689,47 +2497,68 @@ async def unexpected_message_handler(message: Message, state: FSMContext):
 
     is_registered = await is_user_registered(message.from_user.id)
     data = await state.get_data()
-    main_menu_message_id = data.get("main_menu_message_id")
-    menu_message_id = data.get("menu_message_id")
 
-    warning_text = (
-        "🥺 <b>Извините, но сейчас я ожидаю нажатие кнопок.</b>\n"
-        "Пожалуйста, выберите нужное действие ниже."
-    )
+    current_message_id = data.get("current_message_id")
+    current_text = data.get("current_text")
+    current_keyboard = data.get("current_keyboard")
 
-    # Если есть меню с фото — редактируем ЕГО
-    if menu_message_id:
-        try:
-            total_photos = data.get("total_photos", 0)
-            current_keyboard = view_photos_keyboard(total_photos) if total_photos > 0 else back_keyboard()
+    if not current_message_id or not current_text or not current_keyboard:
+        warning_text = (
+            "🥺 <b>Извините, но сейчас я ожидаю нажатие кнопок.</b>\n"
+            "Пожалуйста, выберите нужное действие ниже."
+        )
+        sent_message = await message.answer(
+            warning_text,
+            parse_mode="HTML",
+            reply_markup=start_keyboard(is_registered=is_registered),
+        )
+        await state.update_data(
+            current_message_id=sent_message.message_id,
+            current_text=warning_text,
+            current_keyboard="start",
+        )
+        return
 
-            await message.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=menu_message_id,
-                text=warning_text,
-                parse_mode="HTML",
-                reply_markup=current_keyboard,
-            )
-            return
-        except Exception:
-            pass
+    new_text = insert_warning_into_text(current_text)
 
-    if main_menu_message_id:
-        try:
-            await message.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=main_menu_message_id,
-                text=warning_text,
-                parse_mode="HTML",
-                reply_markup=start_keyboard(is_registered=is_registered),
-            )
-            return
-        except Exception:
-            pass
+    if current_keyboard == "start":
+        keyboard = start_keyboard(is_registered=is_registered)
+    elif current_keyboard == "back":
+        keyboard = back_keyboard()
+    elif current_keyboard == "back_to_link_web":
+        keyboard = back_to_link_web_keyboard()
+    elif current_keyboard == "profile":
+        row = await get_profile_row(message.from_user.id)
+        keyboard = profile_keyboard(has_last_name=has_last_name(row))
+    elif current_keyboard == "cancel":
+        keyboard = cancel_input_keyboard()
+    elif current_keyboard == "link_web":
+        keyboard = link_web_keyboard()
+    elif current_keyboard == "link_from_web":
+        keyboard = link_from_web_keyboard()
+    elif current_keyboard == "view_photos":
+        total_photos = data.get("total_photos", 0)
+        keyboard = view_photos_keyboard(total_photos) if total_photos > 0 else back_keyboard()
+    elif current_keyboard == "confirm_delete_all_photos":
+        keyboard = confirm_delete_photos_keyboard()
+    elif current_keyboard == "account_management":
+        keyboard = account_management_keyboard()
+    elif current_keyboard == "confirm_unlink":
+        keyboard = confirm_unlink_telegram_keyboard()
+    elif current_keyboard == "confirm_delete_account":
+        keyboard = confirm_delete_account_keyboard()
+    else:
+        keyboard = start_keyboard(is_registered=is_registered)
 
-    sent_message = await message.answer(
-        warning_text,
-        parse_mode="HTML",
-        reply_markup=start_keyboard(is_registered=is_registered),
-    )
-    await state.update_data(main_menu_message_id=sent_message.message_id)
+    # Пытаемся обновить существующее сообщение
+    try:
+        await message.bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=current_message_id,
+            text=new_text,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        if "message is not modified" not in str(e).lower():
+            logger.warning("Не удалось обновить сообщение в unexpected_message_handler: %s", e)

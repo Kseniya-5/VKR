@@ -3,46 +3,56 @@ kind: ConfigMap
 metadata:
   name: nginx-config
 data:
-  nginx.conf: |-
-    worker_processes auto;
-
+  nginx.conf: |
     events {
         worker_connections 1024;
     }
 
     http {
-        include       mime.types;
-        default_type  application/octet-stream;
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
 
-        sendfile        on;
-        keepalive_timeout 65;
-
-        upstream backend_api {
+        upstream api {
             server fashion-api-service:8000;
         }
 
         server {
             listen 80;
-            server_name localhost;
+            server_name _;
 
-            root /usr/share/nginx/html;
-            index index.html;
-
-            location = /from-telegram {
-                try_files /from-telegram.html =404;
-            }
-
-            location / {
-                proxy_pass http://backend_api;
+            # API
+            location /api/ {
+                proxy_pass http://api/;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Статика для регистрации через Telegram
+            location /from-telegram {
+                alias /usr/share/nginx/html/from-telegram.html;
+            }
+
+            # Статика для просмотра фото
+            location /view-photos {
+                alias /usr/share/nginx/html/view-photos.html;
+            }
+
+            # Медиа-файлы (фото)
+            location /media/ {
+                alias /media/;
+                autoindex off;
+            }
+
+            # Здоровье
+            location /health {
+                return 200 "OK";
+                add_header Content-Type text/plain;
             }
         }
     }
 
-  from-telegram.html: |-
+  from-telegram.html: |
     <!DOCTYPE html>
     <html lang="ru">
     <head>
@@ -61,48 +71,37 @@ data:
     <body>
       <h1>Регистрация веб-аккаунта</h1>
       <p>Вы перешли по ссылке из Telegram. Сейчас мы создадим веб-аккаунт, привязанный к вашему Telegram-пользователю.</p>
-
       <form id="register-form">
         <label>
           Email
           <input type="email" id="email" required />
         </label>
-
         <label>
           Пароль
           <input type="password" id="password" minlength="8" required />
         </label>
-
         <button type="submit">Создать аккаунт</button>
       </form>
-
       <div id="message"></div>
-
       <script>
         function getTokenFromQuery() {
           const params = new URLSearchParams(window.location.search);
           return params.get("token");
         }
-
         const apiBaseUrl = "http://127.0.0.1:8000";
         const token = getTokenFromQuery();
         const messageEl = document.getElementById("message");
-
         if (!token) {
           messageEl.textContent = "Токен не найден в ссылке. Перейдите по ссылке из Telegram ещё раз.";
           messageEl.className = "error";
           document.getElementById("register-form").style.display = "none";
         }
-
         document.getElementById("register-form").addEventListener("submit", async (event) => {
           event.preventDefault();
-
           const email = document.getElementById("email").value.trim();
           const password = document.getElementById("password").value;
-
           messageEl.textContent = "";
           messageEl.className = "";
-
           try {
             const response = await fetch(apiBaseUrl + "/auth/register-from-telegram", {
               method: "POST",
@@ -112,9 +111,7 @@ data:
               },
               body: JSON.stringify({ email, password }),
             });
-
             const data = await response.json().catch(() => ({}));
-
             if (!response.ok) {
               if (response.status === 401) {
                 messageEl.textContent = "Токен недействителен или истёк. Сгенерируйте новую ссылку в боте.";
@@ -126,7 +123,6 @@ data:
               messageEl.className = "error";
               return;
             }
-
             messageEl.textContent = "Аккаунт успешно создан и привязан к вашему Telegram!";
             messageEl.className = "success";
             document.getElementById("register-form").style.display = "none";
@@ -134,6 +130,187 @@ data:
             console.error(err);
             messageEl.textContent = "Не удалось связаться с сервером. Попробуйте позже.";
             messageEl.className = "error";
+          }
+        });
+      </script>
+    </body>
+    </html>
+
+  view-photos.html: |
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Мои фото — Fashion Bot</title>
+      <style>
+        body {
+          font-family: system-ui, -apple-system, sans-serif;
+          max-width: 900px;
+          margin: 40px auto;
+          padding: 0 16px;
+          background: #f5f5f5;
+        }
+        h1 {
+          font-size: 28px;
+          color: #333;
+        }
+        .auth-block {
+          background: #fff;
+          padding: 24px;
+          border-radius: 8px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          margin-bottom: 24px;
+        }
+        .auth-block label {
+          display: block;
+          margin-bottom: 8px;
+          font-weight: 500;
+        }
+        .auth-block input {
+          width: 100%;
+          padding: 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          box-sizing: border-box;
+        }
+        .auth-block button {
+          margin-top: 12px;
+          padding: 10px 20px;
+          background: #007bff;
+          color: #fff;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .auth-block button:hover {
+          background: #0056b3;
+        }
+        .error {
+          color: #c00;
+          margin-top: 12px;
+        }
+        .success {
+          color: #090;
+          margin-top: 12px;
+        }
+        .photos-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 16px;
+          margin-top: 24px;
+        }
+        .photo-card {
+          background: #fff;
+          border-radius: 8px;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .photo-card img {
+          width: 100%;
+          height: 200px;
+          object-fit: cover;
+          display: block;
+        }
+        .photo-card .info {
+          padding: 12px;
+          font-size: 13px;
+          color: #666;
+        }
+        .loading {
+          text-align: center;
+          padding: 40px;
+          color: #666;
+        }
+      </style>
+    </head>
+    <body>
+      <h1>🖼 Мои фото</h1>
+      <div id="auth-block" class="auth-block" style="display:none;">
+        <p>Чтобы просмотреть фото, получите ссылку для входа в боте (кнопка «🔗 Веб-версия» → «🔑 Сгенерировать ссылку»).</p>
+        <label>
+          Или введите токен вручную:
+          <input type="text" id="manual-token" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+        </label>
+        <button onclick="loadPhotosWithManualToken()">Загрузить фото</button>
+        <div id="auth-message"></div>
+      </div>
+      <div id="photos-container"></div>
+      <script>
+        const apiBaseUrl = "http://127.0.0.1:8000";
+        let accessToken = null;
+        function getTokenFromQuery() {
+          const params = new URLSearchParams(window.location.search);
+          return params.get("token");
+        }
+        async function loadPhotos(token) {
+          const container = document.getElementById("photos-container");
+          container.innerHTML = '<div class="loading">Загрузка...</div>';
+          try {
+            const response = await fetch(apiBaseUrl + "/photos?page=1&page_size=50", {
+              method: "GET",
+              headers: {
+                "Authorization": "Bearer " + token,
+              },
+            });
+            if (!response.ok) {
+              if (response.status === 401) {
+                container.innerHTML = '<div class="error">Токен недействителен или истёк. Получите новую ссылку в боте.</div>';
+                document.getElementById("auth-block").style.display = "block";
+                return;
+              }
+              throw new Error("HTTP " + response.status);
+            }
+            const data = await response.json();
+            const total = data.total || 0;
+            const items = data.items || [];
+            if (total === 0) {
+              container.innerHTML = '<div class="loading">У вас пока нет загруженных фото.</div>';
+              return;
+            }
+            let html = `<p><strong>Всего фото:</strong> ${total}</p><div class="photos-grid">`;
+            for (const item of items) {
+              const createdAt = item.created_at ? new Date(item.created_at).toLocaleString("ru-RU") : "—";
+              const imgSrc = item.url || "https://via.placeholder.com/200x200?text=No+Image";
+              html += `
+                <div class="photo-card">
+                  <img src="${imgSrc}" alt="Фото ${item.id}" />
+                  <div class="info">
+                    <div>ID: ${item.id.substring(0, 8)}...</div>
+                    <div>Дата: ${createdAt}</div>
+                  </div>
+                </div>
+              `;
+            }
+            html += '</div>';
+            container.innerHTML = html;
+          } catch (err) {
+            console.error(err);
+            container.innerHTML = '<div class="error">Не удалось загрузить фото. Проверьте подключение к серверу.</div>';
+          }
+        }
+        function loadPhotosWithManualToken() {
+          const token = document.getElementById("manual-token").value.trim();
+          const messageEl = document.getElementById("auth-message");
+          messageEl.textContent = "";
+          messageEl.className = "";
+          if (!token) {
+            messageEl.textContent = "Введите токен.";
+            messageEl.className = "error";
+            return;
+          }
+          accessToken = token;
+          document.getElementById("auth-block").style.display = "none";
+          loadPhotos(token);
+        }
+        window.addEventListener("DOMContentLoaded", () => {
+          const token = getTokenFromQuery();
+          if (token) {
+            accessToken = token;
+            loadPhotos(token);
+          } else {
+            document.getElementById("auth-block").style.display = "block";
+            document.getElementById("photos-container").innerHTML = "";
           }
         });
       </script>

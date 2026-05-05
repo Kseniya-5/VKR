@@ -51,6 +51,7 @@ def start_keyboard(is_registered: bool) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def link_from_web_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -74,16 +75,41 @@ def back_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+# НОВОЕ: Клавиатура для управления аккаунтом
 def account_management_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔌 Отвязать Telegram", callback_data="unlink_tg"),
-                InlineKeyboardButton(text="🗑 Удалить аккаунт", callback_data="delete_me"),
+                InlineKeyboardButton(text="🔌 Отвязать Telegram", callback_data="confirm_unlink_telegram"),
+                InlineKeyboardButton(text="🗑 Удалить аккаунт", callback_data="confirm_delete_account"),
             ],
             [
                 InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
             ],
+        ]
+    )
+
+
+# НОВОЕ: Подтверждение отвязки Telegram
+def confirm_unlink_telegram_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, отвязать", callback_data="unlink_telegram_confirmed"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="account_management"),
+            ]
+        ]
+    )
+
+
+# НОВОЕ: Подтверждение удаления аккаунта
+def confirm_delete_account_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, удалить", callback_data="delete_account_confirmed"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="account_management"),
+            ]
         ]
     )
 
@@ -114,6 +140,7 @@ def profile_keyboard(has_last_name: bool) -> InlineKeyboardMarkup:
         ]
     )
 
+
 def cancel_input_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -122,6 +149,17 @@ def cancel_input_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def back_to_link_web_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️ Назад", callback_data="link_web")
+            ]
+        ]
+    )
+
 
 def link_web_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -137,6 +175,7 @@ def link_web_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
 
 def view_photos_keyboard(total_photos: int) -> InlineKeyboardMarkup:
     buttons: list[list[InlineKeyboardButton]] = []
@@ -162,8 +201,24 @@ def view_photos_keyboard(total_photos: int) -> InlineKeyboardMarkup:
 
     buttons.append(
         [
+            InlineKeyboardButton(text="🗑 Удалить все фото", callback_data="confirm_delete_all_photos")
+        ]
+    )
+    buttons.append(
+        [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
         ]
     )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def confirm_delete_photos_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, удалить все", callback_data="delete_all_photos_confirmed"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="view_photos"),
+            ]
+        ]
+    )

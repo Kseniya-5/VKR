@@ -164,3 +164,25 @@ async def list_photos(
     ]
 
     return {"total": total, "items": items}
+
+@router.delete("/all")
+async def delete_all_photos(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Удаляет все фото текущего пользователя (мягкое удаление: is_active = FALSE)
+    """
+    await db.execute(
+        text(
+            """
+            UPDATE user_photos
+            SET is_active = FALSE
+            WHERE user_id = :user_id
+            """
+        ),
+        {"user_id": str(current_user.id)},
+    )
+    await db.commit()
+
+    return {"message": "Все фото удалены"}

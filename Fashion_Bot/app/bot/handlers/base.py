@@ -1,10 +1,16 @@
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from app.bot.states import ProfileEditState
+from app.bot.states import ProfileEditState, LinkWebState, UploadPhotosState, DeletePhotosState
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+import aiohttp
+import asyncio
+from aiogram import Bot
+import logging
+import json
+import re
 
 from app.core.config import settings
 from app.bot.keyboards import (
@@ -12,10 +18,13 @@ from app.bot.keyboards import (
     back_keyboard,
     profile_keyboard,
     cancel_input_keyboard,
+    link_web_keyboard,
+    link_from_web_keyboard,
+    view_photos_keyboard,
 )
 
-
 router = Router()
+upload_locks: dict[int, asyncio.Lock] = {}
 
 engine = create_async_engine(
     settings.database_url,
@@ -27,6 +36,9 @@ SessionLocal = async_sessionmaker(
     engine,
     expire_on_commit=False,
 )
+
+logger = logging.getLogger(__name__)
+API_BASE_URL = "http://fashion-api-service:8000"
 
 
 async def is_user_registered(telegram_id: int) -> bool:
@@ -90,7 +102,6 @@ async def get_profile_text(telegram_id: int) -> str | None:
         f"Email: {email}"
     )
 
-################################################################################
 
 def get_help_text() -> str:
     return (
@@ -104,8 +115,8 @@ def get_help_text() -> str:
         "• 🖼 Посмотреть фото — просмотр загруженных фото\n"
         "• 👗 Получить рекомендации — советы по подбору одежды\n"
         "• 🧥 Собрать образ — помощь в составлении комплекта"
-        
     )
+
 
 async def show_main_menu(
     target_message,
@@ -128,7 +139,9 @@ async def show_main_menu(
         else:
             text_value = (
                 "👗 <b>Добро пожаловать в Fashion Bot!</b>\n\n"
-                "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
+                "Я помогаю управлять <b>персональным гардеробом и стилем</b>: "
+                "храню фото вещей, подсказываю удачные сочетания и собираю образы на каждый день.\n\n"
+                "Начните с регистрации, чтобы я запомнил ваш гардероб и смог давать персональные рекомендации.\n"
                 "Чтобы начать, нажмите кнопку <b>«📝 Зарегистрироваться»</b>."
             )
 
@@ -140,6 +153,7 @@ async def show_main_menu(
 
     await state.update_data(main_menu_message_id=sent_message.message_id)
     return sent_message
+
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
@@ -153,10 +167,28 @@ async def cmd_start(message: Message, state: FSMContext):
         warning=False,
     )
 
+
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
     is_registered = await is_user_registered(telegram_id)
+
+    data = await state.get_data()
+    photo_message_ids = data.get("photo_message_ids", [])
+    menu_message_id = data.get("menu_message_id")
+
+    await _delete_photo_messages(callback.bot, callback.message.chat.id, photo_message_ids)
+
+    if menu_message_id:
+        try:
+            await callback.bot.delete_message(
+                chat_id=callback.message.chat.id,
+                message_id=menu_message_id,
+            )
+        except Exception:
+            pass
+
+    await state.clear()
 
     if is_registered:
         text_value = (
@@ -170,15 +202,23 @@ async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
             "Чтобы начать, нажмите кнопку <b>«📝 Зарегистрироваться»</b>."
         )
 
-    await callback.message.edit_text(
-        text_value,
-        parse_mode="HTML",
-        reply_markup=start_keyboard(is_registered=is_registered),
-    )
+    try:
+        await callback.message.edit_text(
+            text_value,
+            parse_mode="HTML",
+            reply_markup=start_keyboard(is_registered=is_registered),
+        )
+        await state.update_data(main_menu_message_id=callback.message.message_id)
+    except Exception:
+        sent = await callback.message.answer(
+            text_value,
+            parse_mode="HTML",
+            reply_markup=start_keyboard(is_registered=is_registered),
+        )
+        await state.update_data(main_menu_message_id=sent.message_id)
 
-    await state.update_data(main_menu_message_id=callback.message.message_id)
     await callback.answer()
-################################################################################
+
 
 @router.message(Command("help"))
 async def help_cmd(message: Message):
@@ -188,10 +228,30 @@ async def help_cmd(message: Message):
     await message.answer(
         get_help_text(),
         parse_mode="HTML",
-        reply_markup=back_keyboard() if is_registered else start_keyboard(is_registered=False),
+        reply_markup=back_keyboard()
+        if is_registered
+        else start_keyboard(is_registered=False),
     )
 
-################################################################################
+
+@router.message(Command("link"))
+async def cmd_link(message: Message, state: FSMContext):
+    await state.set_state(LinkWebState.waiting_for_link_code)
+
+    sent = await message.answer(
+        "🔑 <b>Вход по коду из веб-версии</b>\n\n"
+        "1. Войдите в веб-версию под своим аккаунтом (email + пароль).\n"
+        "2. Получите одноразовый код для связи с Telegram.\n"
+        "3. Отправьте этот код следующим сообщением.",
+        parse_mode="HTML",
+        reply_markup=back_keyboard(),
+    )
+    await state.update_data(link_message_id=sent.message_id)
+
+
+# ============================================================
+# Регистрация, профиль, удаление и тд
+# ============================================================
 
 @router.callback_query(F.data == "start_register")
 async def start_register_callback(callback: CallbackQuery):
@@ -210,12 +270,7 @@ async def start_register_callback(callback: CallbackQuery):
 
     async with SessionLocal() as session:
         user_result = await session.execute(
-            text(
-                """
-                INSERT INTO users DEFAULT VALUES
-                RETURNING id
-                """
-            )
+            text("INSERT INTO users DEFAULT VALUES RETURNING id")
         )
         user_id = user_result.scalar_one()
 
@@ -228,8 +283,7 @@ async def start_register_callback(callback: CallbackQuery):
                     username,
                     first_name,
                     last_name
-                )
-                VALUES (
+                ) VALUES (
                     :telegram_id,
                     :user_id,
                     :username,
@@ -257,11 +311,47 @@ async def start_register_callback(callback: CallbackQuery):
     )
     await callback.answer()
 
+
+async def get_user_id_by_telegram(telegram_id: int) -> str | None:
+    async with SessionLocal() as session:
+        result = await session.execute(
+            text(
+                """
+                SELECT user_id
+                FROM telegram_accounts
+                WHERE telegram_id = :telegram_id
+                LIMIT 1
+                """
+            ),
+            {"telegram_id": telegram_id},
+        )
+        return result.scalar_one_or_none()
+
+
+@router.callback_query(F.data == "start_link_from_web")
+async def start_link_from_web_callback(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(LinkWebState.waiting_for_link_code)
+
+    await callback.message.edit_text(
+        "🔑 <b>Вход по коду из веб-версии</b>\n\n"
+        "1. Войдите в веб-версию по email и паролю.\n"
+        "2. Получите одноразовый код для связи с Telegram.\n"
+        "3. Отправьте этот код следующим сообщением.\n\n"
+        "⚠️ Код действует ограниченное время.",
+        parse_mode="HTML",
+        reply_markup=link_from_web_keyboard(),
+    )
+
+    await state.update_data(link_message_id=callback.message.message_id)
+    await callback.answer()
+
+
 def has_last_name(row) -> bool:
     if not row:
         return False
     value = row["last_name"]
     return value is not None and str(value).strip() != ""
+
 
 @router.callback_query(F.data == "open_profile")
 async def open_profile_callback(callback: CallbackQuery, state: FSMContext):
@@ -285,11 +375,15 @@ async def open_profile_callback(callback: CallbackQuery, state: FSMContext):
         parse_mode="HTML",
         reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
     )
+
+    await state.update_data(profile_message_id=callback.message.message_id)
     await callback.answer()
+
 
 @router.callback_query(F.data == "edit_last_name")
 async def edit_last_name_callback(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ProfileEditState.waiting_for_last_name)
+    await state.update_data(profile_message_id=callback.message.message_id)
 
     await callback.message.edit_text(
         "✏️ <b>Редактирование фамилии</b>\n\n"
@@ -327,11 +421,16 @@ async def cancel_profile_edit_callback(callback: CallbackQuery, state: FSMContex
 @router.message(ProfileEditState.waiting_for_last_name)
 async def process_last_name(message: Message, state: FSMContext):
     if not message.text:
-        await message.answer("Введите фамилию текстом.")
+        try:
+            await message.delete()
+        except Exception:
+            pass
         return
 
     telegram_id = message.from_user.id
     last_name = message.text.strip()
+    data = await state.get_data()
+    profile_message_id = data.get("profile_message_id")
 
     async with SessionLocal() as session:
         await session.execute(
@@ -359,15 +458,32 @@ async def process_last_name(message: Message, state: FSMContext):
     row = await get_profile_row(telegram_id)
     profile_text = await get_profile_text(telegram_id)
 
+    updated_text = "✅ Фамилия обновлена.\n\n" + (profile_text or "")
+
+    if profile_message_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=profile_message_id,
+                text=updated_text,
+                parse_mode="HTML",
+                reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+            )
+            return
+        except Exception:
+            pass
+
     await message.answer(
-        "✅ Фамилия обновлена\n\n" + profile_text,
+        updated_text,
         parse_mode="HTML",
         reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
     )
 
+
 @router.callback_query(F.data == "edit_first_name")
 async def edit_first_name_callback(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ProfileEditState.waiting_for_first_name)
+    await state.update_data(profile_message_id=callback.message.message_id)
 
     await callback.message.edit_text(
         "✍️ <b>Редактирование имени</b>\n\n"
@@ -377,14 +493,20 @@ async def edit_first_name_callback(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
+
 @router.message(ProfileEditState.waiting_for_first_name)
 async def process_first_name(message: Message, state: FSMContext):
     if not message.text:
-        await message.answer("Введите имя текстом.")
+        try:
+            await message.delete()
+        except Exception:
+            pass
         return
 
     telegram_id = message.from_user.id
     first_name = message.text.strip()
+    data = await state.get_data()
+    profile_message_id = data.get("profile_message_id")
 
     async with SessionLocal() as session:
         await session.execute(
@@ -412,12 +534,329 @@ async def process_first_name(message: Message, state: FSMContext):
     row = await get_profile_row(telegram_id)
     profile_text = await get_profile_text(telegram_id)
 
+    updated_text = "✅ Имя обновлено.\n\n" + (profile_text or "")
+
+    if profile_message_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=profile_message_id,
+                text=updated_text,
+                parse_mode="HTML",
+                reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
+            )
+            return
+        except Exception:
+            pass
+
     await message.answer(
-        "✅ Имя обновлено.\n\n" + profile_text,
+        updated_text,
         parse_mode="HTML",
         reply_markup=profile_keyboard(has_last_name=has_last_name(row)),
     )
-################################################################################
+
+
+@router.message(LinkWebState.waiting_for_link_code)
+async def process_link_code(message: Message, state: FSMContext):
+    code = (message.text or "").strip().upper()
+    data = await state.get_data()
+    link_message_id = data.get("link_message_id")
+
+    telegram_id = message.from_user.id
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if not code:
+        if link_message_id:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=link_message_id,
+                    text=(
+                        "🔑 <b>Вход по коду из веб-версии</b>\n\n"
+                        "Пожалуйста, отправьте код текстом одним сообщением."
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=back_keyboard(),
+                )
+                return
+            except Exception:
+                pass
+
+        await message.answer(
+            "Пожалуйста, отправьте код текстом одним сообщением.",
+            reply_markup=back_keyboard(),
+        )
+        return
+
+    async with SessionLocal() as session:
+        result = await session.execute(
+            text(
+                """
+                SELECT code, user_id, expires_at
+                FROM account_link_codes
+                WHERE code = :code
+                LIMIT 1
+                """
+            ),
+            {"code": code},
+        )
+        row = result.mappings().first()
+
+        if not row:
+            if link_message_id:
+                try:
+                    await message.bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=link_message_id,
+                        text=(
+                            "🔑 <b>Вход по коду из веб-версии</b>\n\n"
+                            "❌ Код не найден или уже использован.\n"
+                            "Проверьте код и попробуйте снова."
+                        ),
+                        parse_mode="HTML",
+                        reply_markup=back_keyboard(),
+                    )
+                    return
+                except Exception:
+                    pass
+
+            await message.answer(
+                "❌ Код не найден или уже использован.\n"
+                "Проверьте код и попробуйте снова.",
+                reply_markup=back_keyboard(),
+            )
+            return
+
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        expires_at = row["expires_at"]
+        user_id = row["user_id"]
+
+        if expires_at < now:
+            await session.execute(
+                text("DELETE FROM account_link_codes WHERE code = :code"),
+                {"code": code},
+            )
+            await session.commit()
+
+            await state.clear()
+
+            if link_message_id:
+                try:
+                    await message.bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=link_message_id,
+                        text=(
+                            "🔑 <b>Вход по коду из веб-версии</b>\n\n"
+                            "⏰ Срок действия кода истёк.\n"
+                            "Сгенерируйте новый код в веб-версии."
+                        ),
+                        parse_mode="HTML",
+                        reply_markup=start_keyboard(is_registered=False),
+                    )
+                    return
+                except Exception:
+                    pass
+
+            await message.answer(
+                "⏰ Срок действия кода истёк.\n"
+                "Сгенерируйте новый код в веб-версии.",
+                reply_markup=start_keyboard(is_registered=False),
+            )
+            return
+
+        existing_user_id = await get_user_id_by_telegram(telegram_id)
+        if existing_user_id and str(existing_user_id) != str(user_id):
+            await state.clear()
+
+            if link_message_id:
+                try:
+                    await message.bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=link_message_id,
+                        text=(
+                            "⚠️ Этот Telegram уже привязан к другому аккаунту.\n\n"
+                            "Сначала отвяжите его в настройках, а затем попробуйте снова."
+                        ),
+                        reply_markup=start_keyboard(is_registered=True),
+                    )
+                    return
+                except Exception:
+                    pass
+
+            await message.answer(
+                "⚠️ Этот Telegram уже привязан к другому аккаунту.\n"
+                "Сначала отвяжите его в настройках.",
+                reply_markup=start_keyboard(is_registered=True),
+            )
+            return
+
+        await session.execute(
+            text(
+                """
+                INSERT INTO telegram_accounts (
+                    telegram_id,
+                    user_id,
+                    username,
+                    first_name,
+                    last_name
+                ) VALUES (
+                    :telegram_id,
+                    :user_id,
+                    :username,
+                    :first_name,
+                    :last_name
+                )
+                ON CONFLICT (telegram_id)
+                DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
+                    username = EXCLUDED.username,
+                    first_name = EXCLUDED.first_name,
+                    last_name = EXCLUDED.last_name
+                """
+            ),
+            {
+                "telegram_id": telegram_id,
+                "user_id": str(user_id),
+                "username": message.from_user.username,
+                "first_name": message.from_user.first_name,
+                "last_name": message.from_user.last_name,
+            },
+        )
+
+        await session.execute(
+            text("DELETE FROM account_link_codes WHERE code = :code"),
+            {"code": code},
+        )
+
+        await session.commit()
+
+    await state.clear()
+
+    success_text = (
+        "✅ <b>Telegram успешно привязан к аккаунту из веб-версии.</b>\n\n"
+        "Теперь вы можете пользоваться ботом и веб-версией как одним аккаунтом."
+    )
+
+    if link_message_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=link_message_id,
+                text=success_text,
+                parse_mode="HTML",
+                reply_markup=start_keyboard(is_registered=True),
+            )
+            return
+        except Exception:
+            pass
+
+    await message.answer(
+        success_text,
+        parse_mode="HTML",
+        reply_markup=start_keyboard(is_registered=True),
+    )
+
+
+@router.callback_query(F.data == "generate_web_link")
+async def generate_web_link_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
+        await callback.message.edit_text(
+            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await callback.answer()
+        return
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{API_BASE_URL}/auth/dev-token-for-telegram",
+                params={"telegram_id": telegram_id},
+            ) as resp:
+                resp_text = await resp.text()
+                if resp.status != 200:
+                    logger.error(
+                        "dev-token-for-telegram failed: status=%s body=%s",
+                        resp.status,
+                        resp_text,
+                    )
+                    await callback.message.edit_text(
+                        "😔 Не удалось сгенерировать ссылку для входа в веб. "
+                        "Попробуйте позже.",
+                        reply_markup=back_keyboard(),
+                    )
+                    await callback.answer()
+                    return
+
+                data = json.loads(resp_text)
+    except Exception as e:
+        logger.exception("Error in generate_web_link_callback: %s", e)
+        await callback.message.edit_text(
+            "😔 Не удалось связаться с сервером. Попробуйте позже.",
+            reply_markup=back_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    access_token = data.get("access_token")
+    if not access_token:
+        logger.error("dev-token-for-telegram returned no access_token: %s", data)
+        await callback.message.edit_text(
+            "😔 Сервер не вернул токен. Попробуйте позже.",
+            reply_markup=back_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    web_base_url = "http://127.0.0.1"
+    link_url = f"{web_base_url}/from-telegram?token={access_token}"
+
+    await callback.message.edit_text(
+        "🔗 <b>Ссылка для входа в веб-версию</b>\n\n"
+        "Нажмите на ссылку ниже, чтобы открыть веб-версию и "
+        "создать веб-аккаунт, привязанный к вашему Telegram.\n\n"
+        f"{link_url}",
+        parse_mode="HTML",
+        reply_markup=back_keyboard(),
+        disable_web_page_preview=False,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "link_web")
+async def link_web_callback(callback: CallbackQuery, state: FSMContext):
+    if not await is_user_registered(callback.from_user.id):
+        await callback.message.edit_text(
+            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await callback.answer()
+        return
+
+    await state.clear()
+
+    await callback.message.edit_text(
+        "🔗 <b>Связь с веб-версией</b>\n\n"
+        "Варианты:\n"
+        "1. Нажмите «🔑 Сгенерировать ссылку для входа в веб» — "
+        "бот создаст личную ссылку, по которой вы сможете зайти в веб-версию, "
+        "привязанную к вашему Telegram.\n"
+        "2. Или откройте веб-версию по ссылке ниже и используйте сценарий "
+        "«сначала веб → потом ТГ по коду». Для этого нужно будет сначала удалить ТГ-аккаунт и получить код до регистрации.",
+        parse_mode="HTML",
+        reply_markup=link_web_keyboard(),
+        disable_web_page_preview=True,
+    )
+    await callback.answer()
+
 
 @router.callback_query(F.data == "open_help")
 async def open_help_callback(callback: CallbackQuery):
@@ -429,49 +868,362 @@ async def open_help_callback(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(F.data == "link_web")
-async def link_web_callback(callback: CallbackQuery):
-    if not await is_user_registered(callback.from_user.id):
-        await callback.message.edit_text(
-            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
-            reply_markup=start_keyboard(is_registered=False),
-        )
-        await callback.answer()
-        return
-
-    await callback.message.edit_text(
-        "🔗 <b>Связь с веб-версией</b>\n\n"
-        "Этот раздел можно использовать для привязки аккаунта к веб-версии.\n"
-        "Сейчас функция находится в разработке.",
-        parse_mode="HTML",
-        reply_markup=back_keyboard(),
-    )
-    await callback.answer()
-
+# ============================================================
+# Загрузка фото 
+# ============================================================
 
 @router.callback_query(F.data == "upload_photo")
-async def upload_photo_callback(callback: CallbackQuery):
-    if not await is_user_registered(callback.from_user.id):
+async def upload_photo_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
         await callback.message.edit_text(
             "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
             reply_markup=start_keyboard(is_registered=False),
         )
         await callback.answer()
         return
+
+    # Получаем токен для API
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{API_BASE_URL}/auth/dev-token-for-telegram",
+                params={"telegram_id": telegram_id},
+            ) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        "upload_photo: dev-token failed status=%s",
+                        resp.status,
+                    )
+                    await callback.message.edit_text(
+                        "😔 Не удалось получить токен для загрузки. Попробуйте позже.",
+                        reply_markup=back_keyboard(),
+                    )
+                    await callback.answer()
+                    return
+                data = await resp.json()
+                access_token = data["access_token"]
+    except Exception as e:
+        logger.exception("upload_photo: ошибка получения токена: %s", e)
+        await callback.message.edit_text(
+            "😔 Не удалось связаться с сервером. Попробуйте позже.",
+            reply_markup=back_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    await state.set_state(UploadPhotosState.waiting_for_photos)
+    await state.update_data(
+        upload_message_id=callback.message.message_id,
+        uploaded_count=0,
+        failed_count=0,
+        warning_shown=False,
+        access_token=access_token,  # сохраняем токен в state
+    )
 
     await callback.message.edit_text(
         "📸 <b>Загрузка фото</b>\n\n"
-        "Отправьте фотографию следующим сообщением.\n"
-        "После этого бот сможет сохранить её и использовать для рекомендаций.",
+        "Отправьте одно или несколько фотографий подряд.\n"
+        "Я принимаю форматы: JPG, PNG, HEIC, WEBP — и автоматически "
+        "конвертирую их в JPEG для дальнейшей работы.\n\n"
+        "Если отправите не фото, я удалю сообщение и напомню, "
+        "что можно загружать только изображения.",
         parse_mode="HTML",
         reply_markup=back_keyboard(),
     )
     await callback.answer()
 
 
+async def _update_upload_summary_message(
+    bot,
+    chat_id: int,
+    upload_message_id: int | None,
+    uploaded_count: int,
+    failed_count: int,
+):
+    """
+    Обновляет текст сообщения с инструкцией/статусом загрузки.
+    """
+    if not upload_message_id:
+        return
+
+    if uploaded_count > 0 and failed_count == 0:
+        text = (
+            "✅ <b>Фото добавлены в ваш гардероб.</b>\n\n"
+            f"Успешно сохранено: <b>{uploaded_count}</b> фото.\n"
+            "Можете отправить ещё фото или нажать «Назад», "
+            "чтобы вернуться в главное меню."
+        )
+    elif uploaded_count > 0 and failed_count > 0:
+        text = (
+            "⚠️ <b>Часть фото не удалось сохранить.</b>\n\n"
+            f"Успешно сохранено: <b>{uploaded_count}</b>.\n"
+            f"Ошибок при сохранении: <b>{failed_count}</b>.\n\n"
+            "Попробуйте отправить проблемные фото ещё раз, "
+            "или нажмите «Назад», чтобы вернуться в главное меню."
+        )
+    elif uploaded_count == 0 and failed_count > 0:
+        text = (
+            "😔 <b>Не удалось сохранить ни одно фото.</b>\n\n"
+            "Проверьте формат изображений и попробуйте ещё раз.\n"
+            "Я принимаю JPG, PNG, HEIC, WEBP."
+        )
+    else:
+        text = (
+            "📸 <b>Загрузка фото</b>\n\n"
+            "Отправьте одно или несколько фотографий подряд.\n"
+            "Я принимаю форматы: JPG, PNG, HEIC, WEBP."
+        )
+
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=upload_message_id,
+            text=text,
+            parse_mode="HTML",
+            reply_markup=back_keyboard(),
+        )
+    except Exception as e:
+        logger.warning("Не удалось обновить upload_message_id=%s: %s", upload_message_id, e)
+
+
+@router.message(UploadPhotosState.waiting_for_photos)
+async def handle_uploaded_photos(message: Message, state: FSMContext):
+    chat_id = message.chat.id
+    
+    if chat_id not in upload_locks:
+        upload_locks[chat_id] = asyncio.Lock()
+    
+    async with upload_locks[chat_id]:
+        data = await state.get_data()
+        upload_message_id = data.get("upload_message_id")
+        uploaded_count = data.get("uploaded_count", 0)
+        failed_count = data.get("failed_count", 0)
+        warning_shown = data.get("warning_shown", False)
+        access_token = data.get("access_token")
+
+        if not message.photo:
+            await asyncio.sleep(0.2)
+            try:
+                await message.delete()
+            except Exception as e:
+                logger.warning("Не удалось удалить сообщение (не фото): %s", e)
+
+            if not warning_shown:
+                warning_text = (
+                    "📸 <b>Загрузка фото</b>\n\n"
+                    "Я могу сохранить только <b>изображения</b>.\n"
+                    "Пожалуйста, отправьте фото в формате JPG, PNG, HEIC или WEBP."
+                )
+
+                if upload_message_id:
+                    try:
+                        await message.bot.edit_message_text(
+                            chat_id=message.chat.id,
+                            message_id=upload_message_id,
+                            text=warning_text,
+                            parse_mode="HTML",
+                            reply_markup=back_keyboard(),
+                        )
+                    except Exception as e:
+                        if "message is not modified" not in str(e).lower():
+                            logger.warning("Не удалось отредактировать upload_message: %s", e)
+                else:
+                    await message.answer(
+                        warning_text,
+                        parse_mode="HTML",
+                        reply_markup=back_keyboard(),
+                    )
+
+                await state.update_data(warning_shown=True)
+            return
+
+        await state.update_data(warning_shown=False)
+
+        photo = message.photo[-1]
+        telegram_file_id = photo.file_id
+
+        try:
+            file = await message.bot.get_file(telegram_file_id)
+            file_path = file.file_path
+        except Exception as e:
+            logger.error("Не удалось получить file_path для file_id=%s: %s", telegram_file_id, e)
+            failed_count += 1
+
+            await asyncio.sleep(0.2)
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            await state.update_data(
+                uploaded_count=uploaded_count,
+                failed_count=failed_count,
+            )
+            await _update_upload_summary_message(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                upload_message_id=upload_message_id,
+                uploaded_count=uploaded_count,
+                failed_count=failed_count,
+            )
+            return
+
+        try:
+            file_bytes_io = await message.bot.download_file(file_path)
+            file_bytes = file_bytes_io.read()
+        except Exception as e:
+            logger.error("Не удалось скачать файл для file_id=%s: %s", telegram_file_id, e)
+            failed_count += 1
+
+            await asyncio.sleep(0.2)
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            await state.update_data(
+                uploaded_count=uploaded_count,
+                failed_count=failed_count,
+            )
+            await _update_upload_summary_message(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                upload_message_id=upload_message_id,
+                uploaded_count=uploaded_count,
+                failed_count=failed_count,
+            )
+            return
+
+        upload_success = False
+        try:
+            async with aiohttp.ClientSession() as session:
+                form_data = aiohttp.FormData()
+                form_data.add_field(
+                    "file",
+                    file_bytes,
+                    filename=f"{telegram_file_id}.jpg",
+                    content_type="image/jpeg",
+                )
+                form_data.add_field("telegram_file_id", telegram_file_id)
+                headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+                async with session.post(
+                    f"{API_BASE_URL}/photos/upload",
+                    data=form_data,
+                    headers=headers,
+                ) as resp:
+                    resp_text = await resp.text()
+                    if resp.status == 200:
+                        upload_success = True
+                        uploaded_count += 1
+                    else:
+                        logger.error(
+                            "API /photos/upload вернул status=%s для file_id=%s. Ответ: %s",
+                            resp.status,
+                            telegram_file_id,
+                            resp_text,
+                        )
+                        failed_count += 1
+        except Exception as e:
+            logger.exception("Ошибка при отправке фото в API для file_id=%s: %s", telegram_file_id, e)
+            failed_count += 1
+
+        await asyncio.sleep(0.2)
+        try:
+            await message.delete()
+        except Exception as e:
+            logger.warning("Не удалось удалить сообщение с фото: %s", e)
+
+        await state.update_data(
+            uploaded_count=uploaded_count,
+            failed_count=failed_count,
+        )
+
+        await _update_upload_summary_message(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            upload_message_id=upload_message_id,
+            uploaded_count=uploaded_count,
+            failed_count=failed_count,
+        )
+
+# ============================================================
+# Просмотр фото, рекомендации, собрать образ 
+# ============================================================
+
+
+async def _delete_photo_messages(bot, chat_id: int, photo_message_ids: list[int]):
+    """
+    Удаляет сообщения с фото из чата.
+    """
+    for mid in photo_message_ids:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=mid)
+        except Exception:
+            pass
+
+
+async def _fetch_photos_page(
+    access_token: str,
+    page: int,
+    page_size: int = 10,
+) -> dict:
+    """
+    Получает страницу фото от API с авторизацией.
+    """
+    async with aiohttp.ClientSession() as session:
+        headers = {"Authorization": f"Bearer {access_token}"}
+        async with session.get(
+            f"{API_BASE_URL}/photos",
+            params={"page": page, "page_size": page_size},
+            headers=headers,
+        ) as resp:
+            if resp.status != 200:
+                logger.error(
+                    "_fetch_photos_page: status=%s page=%s",
+                    resp.status,
+                    page,
+                )
+                return {"total": 0, "items": []}
+            data = await resp.json()
+            return data
+
+
+async def _get_access_token_for_telegram(telegram_id: int) -> str | None:
+    """
+    Получает временный токен для API для текущего telegram_id.
+    Возвращает access_token или None при ошибке.
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{API_BASE_URL}/auth/dev-token-for-telegram",
+                params={"telegram_id": telegram_id},
+            ) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        "_get_access_token_for_telegram: status=%s telegram_id=%s",
+                        resp.status,
+                        telegram_id,
+                    )
+                    return None
+                data = await resp.json()
+                return data.get("access_token")
+    except Exception as e:
+        logger.exception(
+            "_get_access_token_for_telegram: exception for telegram_id=%s: %s",
+            telegram_id,
+            e,
+        )
+        return None
+
+
 @router.callback_query(F.data == "view_photos")
-async def view_photos_callback(callback: CallbackQuery):
-    if not await is_user_registered(callback.from_user.id):
+async def view_photos_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
         await callback.message.edit_text(
             "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
             reply_markup=start_keyboard(is_registered=False),
@@ -479,14 +1231,408 @@ async def view_photos_callback(callback: CallbackQuery):
         await callback.answer()
         return
 
+    await state.clear()
+
+    access_token = await _get_access_token_for_telegram(telegram_id)
+    if not access_token:
+        await callback.message.edit_text(
+            "😔 Не удалось получить токен для просмотра фото. Попробуйте позже.",
+            reply_markup=back_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    data = await _fetch_photos_page(access_token=access_token, page=1, page_size=10)
+    total = data.get("total", 0)
+
+    if total == 0:
+        await callback.message.edit_text(
+            "🖼 <b>Просмотр фото</b>\n\n"
+            "У вас пока нет загруженных фото.",
+            parse_mode="HTML",
+            reply_markup=back_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    await state.update_data(total_photos=total, access_token=access_token)
+
     await callback.message.edit_text(
-        "🖼 <b>Посмотреть фото</b>\n\n"
-        "Здесь будет список ваших загруженных фотографий.\n"
-        "Сейчас функция находится в разработке.",
+        "🖼 <b>Просмотр фото</b>\n\n"
+        f"Сейчас у вас сохранено <b>{total}</b> фото.\n"
+        "Выберите, какие из них показать.",
         parse_mode="HTML",
-        reply_markup=back_keyboard(),
+        reply_markup=view_photos_keyboard(total),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^view_photos_page_\d+$"))
+async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+    if not await is_user_registered(telegram_id):
+        await callback.message.edit_text(
+            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await callback.answer()
+        return
+
+    match = re.match(r"view_photos_page_(\d+)", callback.data)
+    page = int(match.group(1)) if match else 1
+
+    data_state = await state.get_data()
+    access_token = data_state.get("access_token")
+    total = data_state.get("total_photos")
+
+    # Если токена нет в state, получаем заново
+    if not access_token:
+        access_token = await _get_access_token_for_telegram(telegram_id)
+        if not access_token:
+            await callback.message.edit_text(
+                "😔 Не удалось получить токен для просмотра фото. Попробуйте позже.",
+                reply_markup=back_keyboard(),
+            )
+            await callback.answer()
+            return
+        await state.update_data(access_token=access_token)
+
+    # Если total нет, запрашиваем
+    if total is None:
+        resp = await _fetch_photos_page(
+            access_token=access_token,
+            page=1,
+            page_size=1,
+        )
+        total = resp.get("total", 0)
+        await state.update_data(total_photos=total)
+
+    resp = await _fetch_photos_page(
+        access_token=access_token,
+        page=page,
+        page_size=10,
+    )
+    items = resp.get("items", [])
+    total = resp.get("total", total)
+
+    # Удаляем старые сообщения с фото и меню
+    old_ids = data_state.get("photo_message_ids", [])
+    old_menu_id = data_state.get("menu_message_id")
+
+    await _delete_photo_messages(callback.bot, callback.message.chat.id, old_ids)
+
+    if old_menu_id:
+        try:
+            await callback.bot.delete_message(
+                chat_id=callback.message.chat.id,
+                message_id=old_menu_id,
+            )
+        except Exception:
+            pass
+
+    new_ids = []
+
+    if not items:
+        text = (
+            "🖼 <b>Просмотр фото</b>\n\n"
+            f"В выбранном диапазоне у вас нет фото.\n"
+            f"Всего сохранено: <b>{total}</b>."
+        )
+
+        # Если фото нет — редактируем старое сообщение
+        try:
+            await callback.message.edit_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=view_photos_keyboard(total),
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                logger.warning("Не удалось обновить текст view_photos_page (нет фото): %s", e)
+
+        await state.update_data(photo_message_ids=[], menu_message_id=None, total_photos=total)
+        await callback.answer()
+        return
+
+    # Отправляем все фото из диапазона с кнопкой "Удалить" под каждым
+    for info in items:
+        telegram_file_id = info.get("telegram_file_id")
+        photo_id = info["id"]
+
+        # Inline-кнопка под каждым фото
+        photo_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_photo_{photo_id}")],
+        ])
+
+        if telegram_file_id:
+            msg = await callback.message.answer_photo(
+                photo=telegram_file_id,
+                reply_markup=photo_keyboard,
+            )
+        else:
+            url = info["url"]
+            msg = await callback.message.answer_photo(
+                photo=url,
+                reply_markup=photo_keyboard,
+            )
+        new_ids.append(msg.message_id)
+
+    # Формируем текст меню
+    if total <= 10 and page == 1:
+        text = (
+            "🖼 <b>Просмотр фото</b>\n\n"
+            f"У вас сохранена <b>{total}</b> фотография."
+            if total == 1
+            else f"У вас сохранено <b>{total}</b> фотографии."
+        )
+    else:
+        start = (page - 1) * 10 + 1
+        end = min(page * 10, total)
+        text = (
+            "🖼 <b>Просмотр фото</b>\n\n"
+            f"Показаны фото с <b>{start}</b> по <b>{end}</b>.\n"
+            f"Всего сохранено: <b>{total}</b>."
+        )
+
+    # Отправляем меню ОТДЕЛЬНЫМ сообщением под последним фото
+    menu_msg = await callback.message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=view_photos_keyboard(total),
+    )
+
+    # Удаляем старое текстовое сообщение (то, которое редактировали раньше)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    # Сохраняем ID фото и меню в state
+    await state.update_data(
+        photo_message_ids=new_ids,
+        menu_message_id=menu_msg.message_id,
+        total_photos=total,
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "view_photos_latest")
+async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+    if not await is_user_registered(telegram_id):
+        await callback.message.edit_text(
+            "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться».",
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await callback.answer()
+        return
+
+    data_state = await state.get_data()
+    access_token = data_state.get("access_token")
+
+    # Если токена нет в state, получаем заново
+    if not access_token:
+        access_token = await _get_access_token_for_telegram(telegram_id)
+        if not access_token:
+            await callback.message.edit_text(
+                "😔 Не удалось получить токен для просмотра фото. Попробуйте позже.",
+                reply_markup=back_keyboard(),
+            )
+            await callback.answer()
+            return
+        await state.update_data(access_token=access_token)
+
+    resp = await _fetch_photos_page(
+        access_token=access_token,
+        page=1,
+        page_size=10,
+    )
+    items = resp.get("items", [])
+    total = resp.get("total", 0)
+
+    # Удаляем старые сообщения с фото и меню
+    old_ids = data_state.get("photo_message_ids", [])
+    old_menu_id = data_state.get("menu_message_id")
+
+    await _delete_photo_messages(callback.bot, callback.message.chat.id, old_ids)
+
+    if old_menu_id:
+        try:
+            await callback.bot.delete_message(
+                chat_id=callback.message.chat.id,
+                message_id=old_menu_id,
+            )
+        except Exception:
+            pass
+
+    new_ids: list[int] = []
+
+    if total == 0 or not items:
+        text = "🖼 <b>Просмотр фото</b>\n\n" "У вас пока нет загруженных фото."
+
+        # Если фото нет — редактируем старое сообщение
+        try:
+            await callback.message.edit_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=back_keyboard(),
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                logger.warning("Не удалось обновить текст view_photos_latest (0): %s", e)
+
+        await state.update_data(photo_message_ids=[], menu_message_id=None, total_photos=0)
+        await callback.answer()
+        return
+
+    # Отправляем фото с кнопкой "Удалить" под каждым
+    for info in items:
+        telegram_file_id = info.get("telegram_file_id")
+        photo_id = info["id"]
+
+        # Inline-кнопка под каждым фото
+        photo_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_photo_{photo_id}")],
+        ])
+
+        if telegram_file_id:
+            msg = await callback.message.answer_photo(
+                photo=telegram_file_id,
+                reply_markup=photo_keyboard,
+            )
+        else:
+            url = info["url"]
+            msg = await callback.message.answer_photo(
+                photo=url,
+                reply_markup=photo_keyboard,
+            )
+        new_ids.append(msg.message_id)
+
+    # Формируем текст меню
+    shown = len(items)
+    if total == 1:
+        text = (
+            "🖼 <b>Последняя фотография</b>\n\n" "У вас сохранена <b>1</b> фотография."
+        )
+    elif total <= 10:
+        text = (
+            "🖼 <b>Последние фото</b>\n\n"
+            f"У вас сохранено <b>{total}</b> фотографий.\n"
+            "Я показал все из них."
+        )
+    else:
+        text = (
+            "🖼 <b>Последние 10 фото</b>\n\n"
+            f"Всего сохранено: <b>{total}</b>.\n"
+            f"Сейчас показаны <b>{shown}</b> самых новых."
+        )
+
+    # Отправляем меню ОТДЕЛЬНЫМ сообщением под последним фото
+    menu_msg = await callback.message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=view_photos_keyboard(total),
+    )
+
+    # Удаляем старое текстовое сообщение
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    # Сохраняем ID фото и меню в state
+    await state.update_data(
+        photo_message_ids=new_ids,
+        menu_message_id=menu_msg.message_id,
+        total_photos=total,
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^delete_photo_[a-f0-9\-]+$"))
+async def delete_single_photo_callback(callback: CallbackQuery, state: FSMContext):
+    """
+    Удаляет одно фото из БД и чата.
+    """
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
+        await callback.answer("Сначала зарегистрируйтесь", show_alert=True)
+        return
+
+    # Извлекаем photo_id из callback_data
+    photo_id = callback.data.replace("delete_photo_", "")
+
+    # Помечаем фото как неактивное в БД
+    async with SessionLocal() as session:
+        result = await session.execute(
+            text(
+                """
+                UPDATE user_photos
+                SET is_active = FALSE
+                WHERE id = :photo_id
+                  AND user_id = (
+                      SELECT user_id
+                      FROM telegram_accounts
+                      WHERE telegram_id = :telegram_id
+                  )
+                RETURNING id
+                """
+            ),
+            {"photo_id": photo_id, "telegram_id": telegram_id},
+        )
+        deleted_id = result.scalar_one_or_none()
+        await session.commit()
+
+    if not deleted_id:
+        await callback.answer("Фото не найдено или уже удалено", show_alert=True)
+        return
+
+    # Удаляем сообщение из чата
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.warning("Не удалось удалить сообщение с фото: %s", e)
+
+    # Обновляем счётчик в state
+    data = await state.get_data()
+    total_photos = data.get("total_photos", 0)
+    if total_photos > 0:
+        total_photos -= 1
+        await state.update_data(total_photos=total_photos)
+
+    # Обновляем меню (если оно есть в state)
+    menu_message_id = data.get("menu_message_id")
+    if menu_message_id and total_photos >= 0:
+        try:
+            # Формируем новый текст меню
+            if total_photos == 0:
+                new_text = "🖼 <b>Просмотр фото</b>\n\nУ вас пока нет загруженных фото."
+                new_keyboard = back_keyboard()
+            elif total_photos == 1:
+                new_text = "🖼 <b>Последняя фотография</b>\n\nУ вас сохранена <b>1</b> фотография."
+                new_keyboard = view_photos_keyboard(total_photos)
+            else:
+                new_text = (
+                    "🖼 <b>Последние фото</b>\n\n"
+                    f"У вас сохранено <b>{total_photos}</b> фотографий."
+                )
+                new_keyboard = view_photos_keyboard(total_photos)
+
+            await callback.bot.edit_message_text(
+                chat_id=callback.message.chat.id,
+                message_id=menu_message_id,
+                text=new_text,
+                parse_mode="HTML",
+                reply_markup=new_keyboard,
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                logger.warning("Не удалось обновить меню после удаления фото: %s", e)
+
+    await callback.answer("🗑 Фото удалено")
 
 
 @router.callback_query(F.data == "get_recommendations")
@@ -528,7 +1674,6 @@ async def build_outfit_callback(callback: CallbackQuery):
     )
     await callback.answer()
 
-################################################################################
 
 @router.message()
 async def unexpected_message_handler(message: Message, state: FSMContext):
@@ -545,11 +1690,29 @@ async def unexpected_message_handler(message: Message, state: FSMContext):
     is_registered = await is_user_registered(message.from_user.id)
     data = await state.get_data()
     main_menu_message_id = data.get("main_menu_message_id")
+    menu_message_id = data.get("menu_message_id")
 
     warning_text = (
         "🥺 <b>Извините, но сейчас я ожидаю нажатие кнопок.</b>\n"
         "Пожалуйста, выберите нужное действие ниже."
     )
+
+    # Если есть меню с фото — редактируем ЕГО
+    if menu_message_id:
+        try:
+            total_photos = data.get("total_photos", 0)
+            current_keyboard = view_photos_keyboard(total_photos) if total_photos > 0 else back_keyboard()
+
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=menu_message_id,
+                text=warning_text,
+                parse_mode="HTML",
+                reply_markup=current_keyboard,
+            )
+            return
+        except Exception:
+            pass
 
     if main_menu_message_id:
         try:

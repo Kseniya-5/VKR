@@ -1,10 +1,141 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: fashion-config
+  name: nginx-config
 data:
-  POSTGRES_DB: "fashion_db"
-  POSTGRES_USER: "fashion_user"
-  DATABASE_URL: "postgresql+asyncpg://fashion_user:fashion_pass@db:5432/fashion_db"
-  REDIS_URL: "redis://redis:6379/0"
-  DEBUG: "False"
+  nginx.conf: |-
+    worker_processes auto;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        include       mime.types;
+        default_type  application/octet-stream;
+
+        sendfile        on;
+        keepalive_timeout 65;
+
+        upstream backend_api {
+            server fashion-api-service:8000;
+        }
+
+        server {
+            listen 80;
+            server_name localhost;
+
+            root /usr/share/nginx/html;
+            index index.html;
+
+            location = /from-telegram {
+                try_files /from-telegram.html =404;
+            }
+
+            location / {
+                proxy_pass http://backend_api;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+        }
+    }
+
+  from-telegram.html: |-
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+      <meta charset="UTF-8" />
+      <title>Регистрация через Telegram</title>
+      <style>
+        body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+        h1 { font-size: 22px; }
+        label { display: block; margin-top: 16px; }
+        input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+        button { margin-top: 20px; padding: 10px 16px; }
+        .error { color: #c00; margin-top: 12px; }
+        .success { color: #090; margin-top: 12px; }
+      </style>
+    </head>
+    <body>
+      <h1>Регистрация веб-аккаунта</h1>
+      <p>Вы перешли по ссылке из Telegram. Сейчас мы создадим веб-аккаунт, привязанный к вашему Telegram-пользователю.</p>
+
+      <form id="register-form">
+        <label>
+          Email
+          <input type="email" id="email" required />
+        </label>
+
+        <label>
+          Пароль
+          <input type="password" id="password" minlength="8" required />
+        </label>
+
+        <button type="submit">Создать аккаунт</button>
+      </form>
+
+      <div id="message"></div>
+
+      <script>
+        function getTokenFromQuery() {
+          const params = new URLSearchParams(window.location.search);
+          return params.get("token");
+        }
+
+        const apiBaseUrl = "http://127.0.0.1:8000";
+        const token = getTokenFromQuery();
+        const messageEl = document.getElementById("message");
+
+        if (!token) {
+          messageEl.textContent = "Токен не найден в ссылке. Перейдите по ссылке из Telegram ещё раз.";
+          messageEl.className = "error";
+          document.getElementById("register-form").style.display = "none";
+        }
+
+        document.getElementById("register-form").addEventListener("submit", async (event) => {
+          event.preventDefault();
+
+          const email = document.getElementById("email").value.trim();
+          const password = document.getElementById("password").value;
+
+          messageEl.textContent = "";
+          messageEl.className = "";
+
+          try {
+            const response = await fetch(apiBaseUrl + "/auth/register-from-telegram", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token,
+              },
+              body: JSON.stringify({ email, password }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+              if (response.status === 401) {
+                messageEl.textContent = "Токен недействителен или истёк. Сгенерируйте новую ссылку в боте.";
+              } else if (response.status === 409) {
+                messageEl.textContent = data.detail || "Пользователь с таким email уже существует.";
+              } else {
+                messageEl.textContent = data.detail || "Произошла ошибка. Попробуйте позже.";
+              }
+              messageEl.className = "error";
+              return;
+            }
+
+            messageEl.textContent = "Аккаунт успешно создан и привязан к вашему Telegram!";
+            messageEl.className = "success";
+            document.getElementById("register-form").style.display = "none";
+          } catch (err) {
+            console.error(err);
+            messageEl.textContent = "Не удалось связаться с сервером. Попробуйте позже.";
+            messageEl.className = "error";
+          }
+        });
+      </script>
+    </body>
+    </html>

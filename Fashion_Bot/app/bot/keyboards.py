@@ -12,6 +12,11 @@ def start_keyboard(is_registered: bool) -> InlineKeyboardMarkup:
         )
         buttons.append(
             [
+                InlineKeyboardButton(text="🔑 Войти по коду из веб-версии", callback_data="start_link_from_web")
+            ]
+        )
+        buttons.append(
+            [
                 InlineKeyboardButton(text="❔ Помощь", callback_data="open_help")
             ]
         )
@@ -45,6 +50,18 @@ def start_keyboard(is_registered: bool) -> InlineKeyboardMarkup:
         )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def link_from_web_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🌐 Открыть веб-версию", url="http://127.0.0.1:30080")
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
+            ],
+        ]
+    )
 
 
 def back_keyboard() -> InlineKeyboardMarkup:
@@ -105,3 +122,48 @@ def cancel_input_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+def link_web_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔑 Сгенерировать ссылку для входа в веб", callback_data="generate_web_link")
+            ],
+            [
+                InlineKeyboardButton(text="🌐 Открыть веб-версию", url="http://127.0.0.1:30080")
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
+            ],
+        ]
+    )
+
+def view_photos_keyboard(total_photos: int) -> InlineKeyboardMarkup:
+    buttons: list[list[InlineKeyboardButton]] = []
+
+    pages = (total_photos + 9) // 10
+    pages = max(1, min(pages, 10))
+
+    for page in range(1, pages + 1):
+        start = (page - 1) * 10 + 1
+        end = min(page * 10, total_photos)
+        buttons.append(
+            [
+                InlineKeyboardButton(text=f"📷 {start}–{end}", callback_data=f"view_photos_page_{page}")
+            ]
+        )
+
+    if total_photos > 10:
+        buttons.append(
+            [
+                InlineKeyboardButton(text="📷 Последние 10", callback_data="view_photos_latest")
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

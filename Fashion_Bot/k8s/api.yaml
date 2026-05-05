@@ -21,12 +21,14 @@ spec:
             - containerPort: 8000
           envFrom:
             - configMapRef:
-                name: fashion-config    
+                name: fashion-config
             - secretRef:
                 name: fashion-secrets
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
+            - name: PUBLIC_BASE_URL
+              value: "http://127.0.0.1"
           resources:
             requests:
               cpu: "200m"
@@ -50,3 +52,24 @@ spec:
             timeoutSeconds: 3
             periodSeconds: 10
             failureThreshold: 3
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fashion-api-service
+spec:
+  type: ClusterIP
+  selector:
+    app: fashion-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8000
+      targetPort: 8000

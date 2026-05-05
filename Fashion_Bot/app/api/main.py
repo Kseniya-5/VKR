@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.routes.auth import router as auth_router
 from app.api.routes.users import router as users_router
+from app.api.routes.photos import router as photos_router  # новый импорт
 
 
 app = FastAPI(
@@ -12,7 +14,6 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
-
 
 allowed_origins = [
     "*",
@@ -28,6 +29,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(photos_router)  # подключаем /photos
 
 
 @app.get("/", tags=["system"])

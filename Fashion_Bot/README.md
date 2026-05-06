@@ -112,12 +112,12 @@ docker build --no-cache -t fashion-bot:v2 .
 minikube image load fashion-bot:v2
 kubectl delete pod -l app=telegram-bot
 kubectl delete pod -l app=fashion-api
-kubectl delete pod -l app=fashion-nginx
+kubectl delete pod -l app=nginx
 
 # 6. Смотреть логи в новых терминалах 3, 4, 5
 kubectl logs -f deployment/telegram-bot --tail=100
 kubectl logs -f deployment/fashion-api --tail=100
-kubectl logs -f deployment/fashion-nginx --tail=100
+kubectl logs -f deployment/nginx --tail=100
 
 ```
 

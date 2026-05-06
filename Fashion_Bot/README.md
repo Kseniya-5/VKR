@@ -93,32 +93,48 @@ chmod +x stop.sh
 
 ***
 
-### 2. Локально проверить работу ТГ + Веб через туннель
+### 2. Локально проверить работу ТГ + Веб 
 ```bash
-# 1. Поднять локальный доступ к nginx в терминале 1
+# 1. Почистить всё лишнее и пересобрать заново
+docker builder prune -a -f
+docker system prune -a --volumes -f
+
+# 2. Создай уникальные теги образов
+export TAG=$(date +%Y%m%d%H%M%S)
+
+export BOT_IMAGE=fashion-bot:$TAG
+export NGINX_IMAGE=fashion-nginx:$TAG
+
+echo $BOT_IMAGE
+echo $NGINX_IMAGE
+
+# 3. Собери backend/bot/worker образ
+docker build --no-cache -t $BOT_IMAGE .
+minikube image load $BOT_IMAGE
+
+# 4. Собери Nginx/frontend образ
+docker build --no-cache -t $NGINX_IMAGE ./nginx
+minikube image load $NGINX_IMAGE
+
+# 5. Временно подставь новые image tags в Kubernetes
+kubectl get deploy
+
+kubectl set image deployment/fashion-api fashion-api=$BOT_IMAGE
+kubectl set image deployment/telegram-bot telegram-bot=$BOT_IMAGE
+kubectl set image deployment/worker worker=$BOT_IMAGE
+kubectl set image deployment/nginx nginx=$NGINX_IMAGE
+
+# 6. Принудительно перезапусти deployment’ы
+kubectl rollout restart deployment/fashion-api
+kubectl rollout restart deployment/telegram-bot
+kubectl rollout restart deployment/worker
+kubectl rollout restart deployment/nginx
+
+# 7. Проверка маршрутов через port-forward
 kubectl port-forward svc/nginx-service 8080:80
 
-# 2. Поднять Cloudflare tunnel в терминале 2
-cloudflared tunnel --url http://localhost:8080 --loglevel debug
-
-# 3. Взять выданный URL вида https://xxxx.trycloudflare.com
-# 4. Подставить его в:
-#    app/bot/keyboards.py
-#    app/bot/base.py
-#    k8s/configmap.yaml
-
-# 5. Применить конфиг и перезапустить pod'ы
-kubectl apply -f k8s/configmap.yaml
-docker build --no-cache -t fashion-bot:v2 .
-minikube image load fashion-bot:v2
-kubectl delete pod -l app=telegram-bot
-kubectl delete pod -l app=fashion-api
-kubectl delete pod -l app=nginx
-
-# 6. Смотреть логи в новых терминалах 3, 4, 5
-kubectl logs -f deployment/telegram-bot --tail=100
-kubectl logs -f deployment/fashion-api --tail=100
-kubectl logs -f deployment/nginx --tail=100
+# 8. Смотрим
+curl -i http://localhost:8080/
 
 ```
 

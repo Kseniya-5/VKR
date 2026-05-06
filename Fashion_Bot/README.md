@@ -121,6 +121,35 @@ kubectl logs -f deployment/fashion-nginx --tail=100
 
 ```
 
+***
+
+### 3. Очистить всю тестовую БД перед внедрением
+```bash
+# 1. Зайти в PostgreSQL
+kubectl exec -it db-0 -- psql -U fashion_user -d fashion_db
+
+# 2. Выполнить очистку всех таблиц (внутри psql)
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'public'
+    )
+    LOOP
+        EXECUTE 'TRUNCATE TABLE public.' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE';
+    END LOOP;
+END $$;
+
+# 3. Проверка — должно вернуть 0
+SELECT COUNT(*) FROM users;
+
+# 4. Выйти из psql
+\q
+```
+
 
 
 

@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 class DeleteAccountRequest(BaseModel):
-    password: str
+    password: str | None = None
     confirm_text: str
 
 

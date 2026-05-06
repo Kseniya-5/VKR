@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.users import router as users_router
-from app.api.routes.photos import router as photos_router  # новый импорт
+from app.api.routes.photos import router as photos_router  
+from app.core.config import settings
 
 
 app = FastAPI(
@@ -21,7 +22,7 @@ allowed_origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

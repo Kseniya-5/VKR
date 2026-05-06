@@ -1,0 +1,244 @@
+<!-- 
+  Файл: index.html
+  Описание: Главная страница с формами входа и регистрации
+  Разработано с помощью: Perplexity AI (модель Claude Sonnet 4.5)
+  Шаблон: AdminLTE 3 (https://adminlte.io)
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fashion Bot | Вход</title>
+
+  <!-- Google Font: Source Sans Pro -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- AdminLTE -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+  
+  <style>
+    .login-page, .register-page {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .card {
+      border-radius: 15px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    }
+  </style>
+</head>
+<body class="hold-transition login-page">
+<div class="login-box">
+  <div class="card card-outline card-primary">
+    <div class="card-header text-center">
+      <h1><b>Fashion</b>Bot</h1>
+      <p class="text-muted">Ваш персональный помощник по стилю</p>
+    </div>
+    <div class="card-body">
+      <!-- Табы для переключения между входом и регистрацией -->
+      <ul class="nav nav-pills mb-3" id="auth-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="login-tab" data-toggle="pill" data-target="#login" type="button">Вход</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="register-tab" data-toggle="pill" data-target="#register" type="button">Регистрация</button>
+        </li>
+      </ul>
+
+      <div class="tab-content" id="auth-tabs-content">
+        <!-- Форма входа -->
+        <div class="tab-pane fade show active" id="login" role="tabpanel">
+          <p class="login-box-msg">Войдите в свой аккаунт</p>
+
+          <form id="login-form">
+            <div class="input-group mb-3">
+              <input type="email" class="form-control" id="login-email" placeholder="Email" required>
+              <div class="input-group-append">
+                <div class="input-group-text">
+                  <span class="fas fa-envelope"></span>
+                </div>
+              </div>
+            </div>
+            <div class="input-group mb-3">
+              <input type="password" class="form-control" id="login-password" placeholder="Пароль" required>
+              <div class="input-group-append">
+                <div class="input-group-text">
+                  <span class="fas fa-lock"></span>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-12">
+                <button type="submit" class="btn btn-primary btn-block">
+                  <i class="fas fa-sign-in-alt mr-2"></i>Войти
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <p class="mt-3 mb-1">
+            <a href="#" onclick="alert('Функция восстановления пароля в разработке')">Забыли пароль?</a>
+          </p>
+          
+          <div id="login-message" class="mt-3"></div>
+        </div>
+
+        <!-- Форма регистрации -->
+        <div class="tab-pane fade" id="register" role="tabpanel">
+          <p class="login-box-msg">Создайте новый аккаунт</p>
+
+          <form id="register-form">
+            <div class="input-group mb-3">
+              <input type="email" class="form-control" id="register-email" placeholder="Email" required>
+              <div class="input-group-append">
+                <div class="input-group-text">
+                  <span class="fas fa-envelope"></span>
+                </div>
+              </div>
+            </div>
+            <div class="input-group mb-3">
+              <input type="password" class="form-control" id="register-password" placeholder="Пароль (минимум 8 символов)" minlength="8" required>
+              <div class="input-group-append">
+                <div class="input-group-text">
+                  <span class="fas fa-lock"></span>
+                </div>
+              </div>
+            </div>
+            <div class="input-group mb-3">
+              <input type="password" class="form-control" id="register-password-confirm" placeholder="Подтвердите пароль" minlength="8" required>
+              <div class="input-group-append">
+                <div class="input-group-text">
+                  <span class="fas fa-lock"></span>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-12">
+                <button type="submit" class="btn btn-primary btn-block">
+                  <i class="fas fa-user-plus mr-2"></i>Зарегистрироваться
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <div id="register-message" class="mt-3"></div>
+        </div>
+      </div>
+
+      <hr>
+      <p class="text-center text-muted">
+        <i class="fab fa-telegram mr-2"></i>
+        Есть Telegram? <a href="https://t.me/FashionableSelectionBot">Начните с бота</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- jQuery -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<!-- Bootstrap 4 -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- AdminLTE App -->
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+
+<script>
+  const API_BASE_URL = window.location.origin; // Автоматически использует текущий домен
+
+  // Проверка, залогинен ли пользователь
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    window.location.href = '/dashboard';
+  }
+
+  // Обработка входа
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    const messageEl = document.getElementById('login-message');
+
+    messageEl.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin mr-2"></i>Вход...</div>';
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        messageEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>${data.detail || 'Ошибка входа'}</div>`;
+        return;
+      }
+
+      localStorage.setItem('access_token', data.access_token);
+      messageEl.innerHTML = '<div class="alert alert-success"><i class="fas fa-check mr-2"></i>Успешный вход! Перенаправление...</div>';
+      
+      setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 1000);
+
+    } catch (err) {
+      console.error(err);
+      messageEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Не удалось связаться с сервером</div>';
+    }
+  });
+
+  // Обработка регистрации
+  document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const email = document.getElementById('register-email').value.trim();
+    const password = document.getElementById('register-password').value;
+    const passwordConfirm = document.getElementById('register-password-confirm').value;
+    const messageEl = document.getElementById('register-message');
+
+    if (password !== passwordConfirm) {
+      messageEl.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-circle mr-2"></i>Пароли не совпадают</div>';
+      return;
+    }
+
+    messageEl.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin mr-2"></i>Регистрация...</div>';
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        messageEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>${data.detail || 'Ошибка регистрации'}</div>`;
+        return;
+      }
+
+      messageEl.innerHTML = '<div class="alert alert-success"><i class="fas fa-check mr-2"></i>Регистрация успешна! Можете войти.</div>';
+      
+      // Переключаем на вкладку входа
+      setTimeout(() => {
+        document.getElementById('login-tab').click();
+        document.getElementById('login-email').value = email;
+      }, 1500);
+
+    } catch (err) {
+      console.error(err);
+      messageEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Не удалось связаться с сервером</div>';
+    }
+  });
+</script>
+
+</body>
+</html>

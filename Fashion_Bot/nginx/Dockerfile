@@ -1,7 +1,17 @@
 FROM nginx:alpine
 
 COPY nginx.conf /etc/nginx/nginx.conf
-COPY from-telegram.html /usr/share/nginx/html/from-telegram.html
-COPY view-photos.html /usr/share/nginx/html/view-photos.html
+
+COPY index.html /usr/share/nginx/html/
+COPY dashboard.html /usr/share/nginx/html/
+COPY photos.html /usr/share/nginx/html/
+COPY profile.html /usr/share/nginx/html/
+COPY settings.html /usr/share/nginx/html/
+COPY link-telegram.html /usr/share/nginx/html/
+COPY from-telegram.html /usr/share/nginx/html/
+COPY recommendations.html /usr/share/nginx/html/
+COPY outfits.html /usr/share/nginx/html/
+
+RUN mkdir -p /usr/share/nginx/media
 
 EXPOSE 80

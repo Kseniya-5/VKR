@@ -1,5 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+WEB_BASE_URL = "https://stadium-troy-venues-guam.trycloudflare.com"
 
 def start_keyboard(is_registered: bool) -> InlineKeyboardMarkup:
     buttons = []
@@ -56,7 +57,7 @@ def link_from_web_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🌐 Открыть веб-версию", url="http://127.0.0.1:30080")
+                InlineKeyboardButton(text="🌐 Открыть веб-версию", url=WEB_BASE_URL)
             ],
             [
                 InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
@@ -75,7 +76,6 @@ def back_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-# НОВОЕ: Клавиатура для управления аккаунтом
 def account_management_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -90,24 +90,22 @@ def account_management_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-# НОВОЕ: Подтверждение отвязки Telegram
 def confirm_unlink_telegram_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="✅ Да, отвязать", callback_data="unlink_telegram_confirmed"),
+                InlineKeyboardButton(text="✅ Да, отвязать", callback_data="do_unlink_telegram"),
                 InlineKeyboardButton(text="❌ Отмена", callback_data="account_management"),
             ]
         ]
     )
 
 
-# НОВОЕ: Подтверждение удаления аккаунта
 def confirm_delete_account_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="✅ Да, удалить", callback_data="delete_account_confirmed"),
+                InlineKeyboardButton(text="✅ Да, удалить", callback_data="do_delete_account"),
                 InlineKeyboardButton(text="❌ Отмена", callback_data="account_management"),
             ]
         ]
@@ -168,7 +166,7 @@ def link_web_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔑 Сгенерировать ссылку для входа в веб", callback_data="generate_web_link")
             ],
             [
-                InlineKeyboardButton(text="🌐 Открыть веб-версию", url="http://127.0.0.1:30080")
+                InlineKeyboardButton(text="🌐 Открыть веб-версию", url=WEB_BASE_URL)
             ],
             [
                 InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")
@@ -218,7 +216,7 @@ def confirm_delete_photos_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ Да, удалить все", callback_data="delete_all_photos_confirmed"),
-                InlineKeyboardButton(text="❌ Отмена", callback_data="view_photos"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_delete_all_photos"),
             ]
         ]
     )

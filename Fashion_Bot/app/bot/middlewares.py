@@ -1,10 +1,18 @@
 from aiogram import BaseMiddleware
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
+from typing import Callable, Dict, Any, Awaitable, Union
+
 
 class LoggingMiddleware(BaseMiddleware):
-    def __init__(self):
-        super().__init__()
-
-    async def __call__(self, handler, event: Message, data: dict):
-        print(f'Получено сообщение: {event.text}')
+    async def __call__(
+        self,
+        handler: Callable[[Union[Message, CallbackQuery], Dict[str, Any]], Awaitable[Any]],
+        event: Union[Message, CallbackQuery],
+        data: Dict[str, Any]
+    ) -> Any:
+        if isinstance(event, Message):
+            print(f'[MIDDLEWARE] Получено сообщение: {event.text}')
+        elif isinstance(event, CallbackQuery):
+            print(f'[MIDDLEWARE] Получен callback: {event.data} от user_id={event.from_user.id}')
+        
         return await handler(event, data)

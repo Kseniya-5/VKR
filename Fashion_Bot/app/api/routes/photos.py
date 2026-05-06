@@ -104,6 +104,84 @@ async def upload_photo(
 
     return {"message": "Фото загружено", "photo_id": str(photo_id), "url": url}
 
+@router.delete("/all")
+async def delete_all_photos(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Удаляет все фото текущего пользователя 
+    """
+    from sqlalchemy import text
+    
+    await db.execute(
+        text(
+            """
+            UPDATE user_photos
+            SET is_active = FALSE,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = :user_id AND is_active = TRUE
+            """
+        ),
+        {"user_id": str(current_user.id)},
+    )
+    await db.commit()
+
+    return {"message": "Все фото удалены"}
+
+
+@router.delete("/{photo_id}")
+async def delete_photo(
+    photo_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Удаляет одно фото 
+    """
+    result = await db.execute(
+        text(
+            """
+            SELECT id, user_id, is_active
+            FROM user_photos
+            WHERE id = :photo_id
+            LIMIT 1
+            """
+        ),
+        {"photo_id": photo_id},
+    )
+    row = result.mappings().first()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo not found",
+        )
+
+    if str(row["user_id"]) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to delete this photo",
+        )
+
+    if not row["is_active"]:
+        return {"message": "Photo is already deleted"}
+
+    await db.execute(
+        text(
+            """
+            UPDATE user_photos
+            SET is_active = FALSE,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :photo_id
+            """
+        ),
+        {"photo_id": photo_id},
+    )
+    await db.commit()
+
+    return {"message": "Photo deleted successfully"}
+
 @router.get("/")
 async def list_photos(
     page: int = Query(1, ge=1),
@@ -164,25 +242,3 @@ async def list_photos(
     ]
 
     return {"total": total, "items": items}
-
-@router.delete("/all")
-async def delete_all_photos(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Удаляет все фото текущего пользователя (мягкое удаление: is_active = FALSE)
-    """
-    await db.execute(
-        text(
-            """
-            UPDATE user_photos
-            SET is_active = FALSE
-            WHERE user_id = :user_id
-            """
-        ),
-        {"user_id": str(current_user.id)},
-    )
-    await db.commit()
-
-    return {"message": "Все фото удалены"}

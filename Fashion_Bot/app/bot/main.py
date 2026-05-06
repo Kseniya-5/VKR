@@ -13,6 +13,7 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 dp.message.middleware(LoggingMiddleware())
+dp.callback_query.middleware(LoggingMiddleware())
 dp.include_routers(
     base_router,
     auth_router,
@@ -21,7 +22,7 @@ dp.include_routers(
 
 async def main():
     print("Бот запущен в режиме polling!")
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":

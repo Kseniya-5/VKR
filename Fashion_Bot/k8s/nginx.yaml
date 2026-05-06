@@ -14,35 +14,15 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: nginx:alpine
+          image: fashion-nginx:v2
+          imagePullPolicy: Never  # Для Minikube 
           ports:
             - name: http
               containerPort: 80
           volumeMounts:
-            - name: nginx-conf-volume
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
-              readOnly: true
-            - name: nginx-html-volume
-              mountPath: /usr/share/nginx/html/from-telegram.html
-              subPath: from-telegram.html
-              readOnly: true
-            - name: auth-volume
-              mountPath: /etc/nginx/conf.d/auth
-              subPath: auth
-              readOnly: true
             - name: media
               mountPath: /usr/share/nginx/media
       volumes:
-        - name: nginx-conf-volume
-          configMap:
-            name: nginx-config
-        - name: nginx-html-volume
-          configMap:
-            name: nginx-config
-        - name: auth-volume
-          secret:
-            secretName: nginx-basic-auth
         - name: media
           persistentVolumeClaim:
             claimName: media-pvc

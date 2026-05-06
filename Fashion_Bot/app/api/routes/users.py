@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from uuid import uuid4
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +25,20 @@ class TrainModelRequest(BaseModel):
     user_id: str
     model_params: dict
 
+class UpdateProfileRequest(BaseModel):
+    first_name: str | None = Field(None, max_length=255)
+    last_name: str | None = Field(None, max_length=255)
+
+
+class TelegramInfoResponse(BaseModel):
+    telegram_id: int | None
+    username: str | None
+    first_name: str | None
+    last_name: str | None
+
+
+class WebAccountInfoResponse(BaseModel):
+    email: str | None
 
 def _validate_delete_confirmation(confirm_text: str) -> None:
     if confirm_text.strip().upper() != "DELETE":
@@ -80,6 +93,120 @@ async def get_me(
         has_web_account=has_web_account,
     )
 
+@router.patch(
+    "/me",
+    response_model=MessageResponse,
+    summary="Обновить профиль пользователя",
+)
+async def update_me(
+    payload: UpdateProfileRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    """
+    Обновляет имя/фамилию в telegram_accounts 
+    """
+    service = UserDeletionService(db)
+    user_status = await service.get_user_status(current_user.id)
+    _ensure_user_not_deleted(user_status)
+
+    has_telegram = await service.has_telegram_account(current_user.id)
+    if not has_telegram:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No Telegram account linked. Profile update is only available for Telegram users.",
+        )
+
+    updates = {}
+    if payload.first_name is not None:
+        updates["first_name"] = payload.first_name
+    if payload.last_name is not None:
+        updates["last_name"] = payload.last_name
+
+    if not updates:
+        return MessageResponse(message="No changes provided")
+
+    set_clause = ", ".join([f"{k} = :{k}" for k in updates.keys()])
+    
+    await db.execute(
+        text(
+            f"""
+            UPDATE telegram_accounts
+            SET {set_clause}
+            WHERE user_id = :user_id
+            """
+        ),
+        {**updates, "user_id": str(current_user.id)},
+    )
+    await db.commit()
+
+    return MessageResponse(message="Profile updated successfully")
+
+
+@router.get(
+    "/me/telegram",
+    response_model=TelegramInfoResponse,
+    summary="Получить информацию о привязанном Telegram",
+)
+async def get_my_telegram_info(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TelegramInfoResponse:
+    result = await db.execute(
+        text(
+            """
+            SELECT telegram_id, username, first_name, last_name
+            FROM telegram_accounts
+            WHERE user_id = :user_id
+            LIMIT 1
+            """
+        ),
+        {"user_id": str(current_user.id)},
+    )
+    row = result.mappings().first()
+
+    if not row:
+        return TelegramInfoResponse(
+            telegram_id=None,
+            username=None,
+            first_name=None,
+            last_name=None,
+        )
+
+    return TelegramInfoResponse(
+        telegram_id=row["telegram_id"],
+        username=row["username"],
+        first_name=row["first_name"],
+        last_name=row["last_name"],
+    )
+
+
+@router.get(
+    "/me/web-account",
+    response_model=WebAccountInfoResponse,
+    summary="Получить информацию о веб-аккаунте",
+)
+async def get_my_web_account_info(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WebAccountInfoResponse:
+    result = await db.execute(
+        text(
+            """
+            SELECT email
+            FROM web_accounts
+            WHERE user_id = :user_id
+            LIMIT 1
+            """
+        ),
+        {"user_id": str(current_user.id)},
+    )
+    row = result.mappings().first()
+
+    if not row:
+        return WebAccountInfoResponse(email=None)
+
+    return WebAccountInfoResponse(email=row["email"])
 
 @router.delete(
     "/me/telegram-link",

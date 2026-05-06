@@ -2,8 +2,10 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from app.bot.states import ProfileEditState, LinkWebState, UploadPhotosState, DeletePhotosState
-from sqlalchemy import text
+from app.core.security import create_access_token
+from sqlalchemy import text as sql_text 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 import aiohttp
 import asyncio
@@ -54,7 +56,7 @@ API_BASE_URL = "http://fashion-api-service:8000"
 async def is_user_registered(telegram_id: int) -> bool:
     async with SessionLocal() as session:
         result = await session.execute(
-            text(
+            sql_text(
                 """
                 SELECT 1
                 FROM telegram_accounts
@@ -70,7 +72,7 @@ async def is_user_registered(telegram_id: int) -> bool:
 async def get_profile_row(telegram_id: int):
     async with SessionLocal() as session:
         result = await session.execute(
-            text(
+            sql_text(
                 """
                 SELECT
                     ta.telegram_id,
@@ -434,6 +436,178 @@ async def confirm_delete_account_callback(callback: CallbackQuery, state: FSMCon
 
     await callback.answer()
 
+class AccountDeletion(StatesGroup):
+    processing = State()
+
+@router.callback_query(F.data == "do_delete_account")
+async def do_delete_account_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+    
+    if not await is_user_registered(telegram_id):
+        await callback.answer("Вы уже не зарегистрированы", show_alert=True)
+        await state.clear()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        return
+
+    await state.set_state(AccountDeletion.processing)
+
+    async with SessionLocal() as session:
+        result = await session.execute(
+            sql_text(
+                """
+                SELECT user_id
+                FROM telegram_accounts
+                WHERE telegram_id = :telegram_id
+                LIMIT 1
+                """
+            ),
+            {"telegram_id": telegram_id},
+        )
+        row = result.mappings().first()
+        
+        if not row:
+            await callback.answer("Ошибка: пользователь не найден", show_alert=True)
+            await state.clear()
+            return
+        
+        user_id = str(row["user_id"])
+
+    access_token = create_access_token(subject=user_id)
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.delete(
+                f"{API_BASE_URL}/users/me",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                },
+                json={"confirm_text": "DELETE"}
+            ) as resp:
+                
+                if resp.status == 200:
+                    message_text = (
+                        "✅ <b>Аккаунт успешно удалён</b>\n\n"
+                        "Пожалуйста, выберите нужное действие ниже.\n\n"
+                        "Все ваши данные были удалены из системы.\n"
+                        "Вы можете зарегистрироваться снова"
+                    )
+                    
+                    await state.set_state(None)
+                    
+                    await callback.message.edit_text(
+                        message_text, 
+                        parse_mode="HTML",
+                        reply_markup=start_keyboard(is_registered=False)
+                    )
+
+                    await state.update_data(
+                        current_message_id=callback.message.message_id,
+                        current_text=message_text,
+                        current_keyboard="start",
+                    )
+                    
+                    data = await state.get_data()
+                    
+                    await callback.answer()
+                else:
+                    error_data = await resp.json()
+                    await state.clear()
+                    await callback.answer(
+                        f"Ошибка удаления: {error_data.get('detail', 'Неизвестная ошибка')}",
+                        show_alert=True
+                    )
+    except Exception as e:
+        await state.clear()
+        await callback.answer("Ошибка связи с сервером", show_alert=True)
+
+
+class TelegramUnlink(StatesGroup):
+    processing = State()
+
+
+@router.callback_query(F.data == "do_unlink_telegram")
+async def do_unlink_telegram_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+    
+    if not await is_user_registered(telegram_id):
+        await callback.answer("Вы уже не зарегистрированы", show_alert=True)
+        await state.clear()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        return
+
+    await state.set_state(TelegramUnlink.processing)
+
+    async with SessionLocal() as session:
+        result = await session.execute(
+            sql_text(
+                """
+                SELECT user_id
+                FROM telegram_accounts
+                WHERE telegram_id = :telegram_id
+                LIMIT 1
+                """
+            ),
+            {"telegram_id": telegram_id},
+        )
+        row = result.mappings().first()
+        
+        if not row:
+            await callback.answer("Ошибка: пользователь не найден", show_alert=True)
+            await state.clear()
+            return
+        
+        user_id = str(row["user_id"])
+
+    access_token = create_access_token(subject=user_id)
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.delete(
+                f"{API_BASE_URL}/users/me/telegram-link",
+                headers={"Authorization": f"Bearer {access_token}"}
+            ) as resp:
+                if resp.status == 200:
+                    message_text = (
+                        "✅ <b>Telegram отвязан</b>\n\n"
+                        "Пожалуйста, выберите нужное действие ниже.\n\n"
+                        "Ваш Telegram больше не связан с аккаунтом.\n"
+                        "Аккаунт в системе сохранён, доступен через веб-версию.\n\n"
+                        "Вы можете зарегистрироваться снова"
+                    )
+                    
+                    await state.set_state(None)
+                    
+                    await callback.message.edit_text(
+                        message_text, 
+                        parse_mode="HTML",
+                        reply_markup=start_keyboard(is_registered=False)
+                    )
+                    
+                    await state.update_data(
+                        current_message_id=callback.message.message_id,
+                        current_text=message_text,
+                        current_keyboard="start",
+                    )
+                    
+                    await callback.answer()
+                else:
+                    error_data = await resp.json()
+                    await state.clear()
+                    await callback.answer(
+                        f"Ошибка отвязки: {error_data.get('detail', 'Неизвестная ошибка')}",
+                        show_alert=True
+                    )
+    except Exception as e:
+        logger.error(f"Error unlinking Telegram: {e}")
+        await state.clear()
+        await callback.answer("Ошибка связи с сервером", show_alert=True)
 
 @router.message(Command("link"))
 async def cmd_link(message: Message, state: FSMContext):
@@ -449,14 +623,14 @@ async def cmd_link(message: Message, state: FSMContext):
     sent = await message.answer(
         text,
         parse_mode="HTML",
-        reply_markup=back_keyboard(),
+        reply_markup=cancel_input_keyboard(),  
     )
 
     await state.update_data(
         link_message_id=sent.message_id,
         current_message_id=sent.message_id,
         current_text=text,
-        current_keyboard="back",
+        current_keyboard="cancel",  
     )
 
 
@@ -472,14 +646,24 @@ async def start_register_callback(callback: CallbackQuery, state: FSMContext):
     last_name = callback.from_user.last_name
 
     if await is_user_registered(telegram_id):
-        text = "✅ Ваш Telegram уже зарегистрирован и привязан к аккаунту."
-        await callback.message.edit_text(
-            text,
+        message_text = "✅ Ваш Telegram уже зарегистрирован и привязан к аккаунту."
+        
+        await state.clear()
+        
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+    
+        sent_message = await callback.message.answer(
+            message_text,
+            parse_mode="HTML",
             reply_markup=start_keyboard(is_registered=True),
         )
+        
         await state.update_data(
-            current_message_id=callback.message.message_id,
-            current_text=text,
+            current_message_id=sent_message.message_id,
+            current_text=message_text,
             current_keyboard="start",
         )
         await callback.answer()
@@ -487,12 +671,12 @@ async def start_register_callback(callback: CallbackQuery, state: FSMContext):
 
     async with SessionLocal() as session:
         user_result = await session.execute(
-            text("INSERT INTO users DEFAULT VALUES RETURNING id")
+            sql_text("INSERT INTO users DEFAULT VALUES RETURNING id")
         )
         user_id = user_result.scalar_one()
 
         await session.execute(
-            text(
+            sql_text(
                 """
                 INSERT INTO telegram_accounts (
                     telegram_id,
@@ -519,21 +703,28 @@ async def start_register_callback(callback: CallbackQuery, state: FSMContext):
         )
         await session.commit()
 
-    text = (
+    message_text = (
         "✅ <b>Регистрация выполнена успешно!</b>\n\n"
         "Telegram сохранён и привязан к вашему аккаунту.\n"
         "Теперь вы можете пользоваться функциями бота."
     )
 
-    await callback.message.edit_text(
-        text,
+    await state.clear()
+    
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    sent_message = await callback.message.answer(
+        message_text,
         parse_mode="HTML",
         reply_markup=start_keyboard(is_registered=True),
     )
 
     await state.update_data(
-        current_message_id=callback.message.message_id,
-        current_text=text,
+        current_message_id=sent_message.message_id,
+        current_text=message_text,
         current_keyboard="start",
     )
 
@@ -543,7 +734,7 @@ async def start_register_callback(callback: CallbackQuery, state: FSMContext):
 async def get_user_id_by_telegram(telegram_id: int) -> str | None:
     async with SessionLocal() as session:
         result = await session.execute(
-            text(
+            sql_text(
                 """
                 SELECT user_id
                 FROM telegram_accounts
@@ -797,7 +988,7 @@ async def process_first_name(message: Message, state: FSMContext):
 
     async with SessionLocal() as session:
         await session.execute(
-            text(
+            sql_text(
                 """
                 UPDATE telegram_accounts
                 SET first_name = :first_name
@@ -925,7 +1116,7 @@ async def process_last_name(message: Message, state: FSMContext):
 
     async with SessionLocal() as session:
         await session.execute(
-            text(
+            sql_text(
                 """
                 UPDATE telegram_accounts
                 SET last_name = :last_name
@@ -1025,7 +1216,7 @@ async def process_link_code(message: Message, state: FSMContext):
 
     async with SessionLocal() as session:
         result = await session.execute(
-            text(
+            sql_text(
                 """
                 SELECT code, user_id, expires_at
                 FROM account_link_codes
@@ -1070,7 +1261,7 @@ async def process_link_code(message: Message, state: FSMContext):
 
         if expires_at < now:
             await session.execute(
-                text("DELETE FROM account_link_codes WHERE code = :code"),
+                sql_text("DELETE FROM account_link_codes WHERE code = :code"),
                 {"code": code},
             )
             await session.commit()
@@ -1128,7 +1319,7 @@ async def process_link_code(message: Message, state: FSMContext):
             return
 
         await session.execute(
-            text(
+            sql_text(
                 """
                 INSERT INTO telegram_accounts (
                     telegram_id,
@@ -1161,7 +1352,7 @@ async def process_link_code(message: Message, state: FSMContext):
         )
 
         await session.execute(
-            text("DELETE FROM account_link_codes WHERE code = :code"),
+            sql_text("DELETE FROM account_link_codes WHERE code = :code"),
             {"code": code},
         )
 
@@ -1600,7 +1791,6 @@ async def handle_uploaded_photos(message: Message, state: FSMContext):
             logger.error("Не удалось скачать файл для file_id=%s: %s", telegram_file_id, e)
             failed_count += 1
 
-            # ЗАМЕЧАНИЕ 8: Фото удаляем с задержкой 0.2 секунды
             await asyncio.sleep(0.2)
             try:
                 await message.delete()
@@ -1653,7 +1843,6 @@ async def handle_uploaded_photos(message: Message, state: FSMContext):
             logger.exception("Ошибка при отправке фото в API для file_id=%s: %s", telegram_file_id, e)
             failed_count += 1
 
-        # ЗАМЕЧАНИЕ 8: Фото удаляем с задержкой 0.2 секунды
         await asyncio.sleep(0.2)
         try:
             await message.delete()
@@ -2146,7 +2335,7 @@ async def delete_single_photo_callback(callback: CallbackQuery, state: FSMContex
 
     async with SessionLocal() as session:
         result = await session.execute(
-            text(
+            sql_text(
                 """
                 UPDATE user_photos
                 SET is_active = FALSE
@@ -2281,6 +2470,7 @@ async def confirm_delete_all_photos_callback(callback: CallbackQuery, state: FSM
 
     await state.update_data(
         access_token=access_token,
+        total_photos=total,
         current_message_id=callback.message.message_id,
         current_text=text,
         current_keyboard="confirm_delete_all_photos",
@@ -2344,9 +2534,13 @@ async def delete_all_photos_confirmed_callback(callback: CallbackQuery, state: F
                         resp.status,
                         telegram_id,
                     )
-                    text = "😔 Не удалось удалить фото. Попробуйте позже"
+                    error_data = await resp.json() if resp.content_type == 'application/json' else {}
+                    error_msg = error_data.get('detail', 'Неизвестная ошибка')
+                    
+                    text = f"😔 Не удалось удалить фото.\n\nОшибка: {error_msg}"
                     await callback.message.edit_text(
                         text,
+                        parse_mode="HTML",
                         reply_markup=back_keyboard(),
                     )
                     await state.update_data(
@@ -2383,8 +2577,8 @@ async def delete_all_photos_confirmed_callback(callback: CallbackQuery, state: F
             pass
 
     text = (
-        "✅ <b>Все фото удалены.</b>\n\n"
-        "Теперь ваш гардероб пуст"
+        "✅ <b>Все фото удалены</b>\n\n"
+        "Теперь ваш гардероб пуст."
     )
 
     await callback.message.edit_text(
@@ -2396,9 +2590,68 @@ async def delete_all_photos_confirmed_callback(callback: CallbackQuery, state: F
     await state.update_data(
         photo_message_ids=[],
         menu_message_id=None,
+        total_photos=0,
         current_message_id=callback.message.message_id,
         current_text=text,
         current_keyboard="back",
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel_delete_all_photos")
+async def cancel_delete_all_photos_callback(callback: CallbackQuery, state: FSMContext):
+    """Отменить удаление всех фото - вернуться к просмотру"""
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться."
+        await callback.message.edit_text(
+            text,
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
+        )
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    total = data.get("total_photos", 0)
+
+    if total == 0:
+        text = "У вас пока нет загруженных фото."
+        await callback.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=back_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
+        )
+        await callback.answer()
+        return
+
+    text = (
+        "🖼 <b>Просмотр фото</b>\n\n"
+        f"Сейчас у вас сохранено <b>{total}</b> фото.\n"
+        "Выберите, какие из них показать."
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=view_photos_keyboard(total),
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="view_photos",
     )
 
     await callback.answer()
@@ -2518,7 +2771,7 @@ async def unexpected_message_handler(message: Message, state: FSMContext):
             current_keyboard="start",
         )
         return
-
+    
     new_text = insert_warning_into_text(current_text)
 
     if current_keyboard == "start":
@@ -2550,7 +2803,6 @@ async def unexpected_message_handler(message: Message, state: FSMContext):
     else:
         keyboard = start_keyboard(is_registered=is_registered)
 
-    # Пытаемся обновить существующее сообщение
     try:
         await message.bot.edit_message_text(
             chat_id=message.chat.id,

@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-WEB_BASE_URL = "https://stadium-troy-venues-guam.trycloudflare.com"
+WEB_BASE_URL = "https://speech-nest-output-legs.trycloudflare.com"
 
 def start_keyboard(is_registered: bool) -> InlineKeyboardMarkup:
     buttons = []

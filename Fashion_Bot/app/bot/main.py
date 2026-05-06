@@ -1,11 +1,11 @@
 import asyncio
+
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from app.core.config import BOT_TOKEN
-from app.bot.middlewares import LoggingMiddleware
 from app.bot.handlers.base import router as base_router
-from app.bot.handlers.auth import router as auth_router
+from app.bot.middlewares import LoggingMiddleware
+from app.core.config import BOT_TOKEN
 
 
 bot = Bot(token=BOT_TOKEN)
@@ -14,10 +14,10 @@ dp = Dispatcher(storage=storage)
 
 dp.message.middleware(LoggingMiddleware())
 dp.callback_query.middleware(LoggingMiddleware())
-dp.include_routers(
-    base_router,
-    auth_router,
-)
+
+# Important: only the current base router is enabled.
+# Old app.bot.handlers.auth used endpoints that no longer exist and duplicated state handlers.
+dp.include_routers(base_router)
 
 
 async def main():

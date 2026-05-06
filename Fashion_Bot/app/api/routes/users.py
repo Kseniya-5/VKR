@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -25,6 +27,7 @@ class TrainModelRequest(BaseModel):
     user_id: str
     model_params: dict
 
+
 class UpdateProfileRequest(BaseModel):
     first_name: str | None = Field(None, max_length=255)
     last_name: str | None = Field(None, max_length=255)
@@ -39,6 +42,7 @@ class TelegramInfoResponse(BaseModel):
 
 class WebAccountInfoResponse(BaseModel):
     email: str | None
+
 
 def _validate_delete_confirmation(confirm_text: str) -> None:
     if confirm_text.strip().upper() != "DELETE":
@@ -65,6 +69,46 @@ def _ensure_user_not_deleted(user_status: dict) -> None:
         )
 
 
+def _normalize_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _validate_name(value: str | None, field_name: str) -> None:
+    if value is None:
+        return
+    if len(value) > 255:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{field_name} слишком длинное",
+        )
+    if not re.fullmatch(r"[a-zA-Zа-яА-ЯёЁ\s\-']+", value):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{field_name} может содержать только буквы, пробелы, дефисы и апострофы",
+        )
+
+
+async def _get_user_profile_names(db: AsyncSession, user_id) -> tuple[str | None, str | None]:
+    result = await db.execute(
+        text(
+            """
+            SELECT first_name, last_name
+            FROM users
+            WHERE id = :user_id
+            LIMIT 1
+            """
+        ),
+        {"user_id": str(user_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        return None, None
+    return row["first_name"], row["last_name"]
+
+
 @router.get(
     "/me",
     response_model=UserProfileResponse,
@@ -85,13 +129,17 @@ async def get_me(
 
     has_telegram = await service.has_telegram_account(current_user.id)
     has_web_account = await service.has_web_account(current_user.id)
+    first_name, last_name = await _get_user_profile_names(db, current_user.id)
 
     return UserProfileResponse(
         id=str(current_user.id),
         is_deleted=bool(user_status["is_deleted"]),
         has_telegram=has_telegram,
         has_web_account=has_web_account,
+        first_name=first_name,
+        last_name=last_name,
     )
+
 
 @router.patch(
     "/me",
@@ -104,40 +152,57 @@ async def update_me(
     current_user: User = Depends(get_current_user),
 ) -> MessageResponse:
     """
-    Обновляет имя/фамилию в telegram_accounts 
+    Обновляет имя/фамилию общего пользователя.
+    Если Telegram уже привязан, синхронизирует эти поля и в telegram_accounts,
+    чтобы бот показывал те же имя и фамилию.
     """
     service = UserDeletionService(db)
     user_status = await service.get_user_status(current_user.id)
     _ensure_user_not_deleted(user_status)
 
-    has_telegram = await service.has_telegram_account(current_user.id)
-    if not has_telegram:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No Telegram account linked. Profile update is only available for Telegram users.",
-        )
+    first_name = _normalize_name(payload.first_name)
+    last_name = _normalize_name(payload.last_name)
 
-    updates = {}
-    if payload.first_name is not None:
-        updates["first_name"] = payload.first_name
-    if payload.last_name is not None:
-        updates["last_name"] = payload.last_name
+    _validate_name(first_name, "Имя")
+    _validate_name(last_name, "Фамилия")
 
-    if not updates:
+    has_any_field = payload.first_name is not None or payload.last_name is not None
+    if not has_any_field:
         return MessageResponse(message="No changes provided")
 
-    set_clause = ", ".join([f"{k} = :{k}" for k in updates.keys()])
-    
+    updates: dict[str, str | None] = {}
+    if payload.first_name is not None:
+        updates["first_name"] = first_name
+    if payload.last_name is not None:
+        updates["last_name"] = last_name
+
+    set_clause = ", ".join([f"{key} = :{key}" for key in updates])
+
     await db.execute(
         text(
             f"""
-            UPDATE telegram_accounts
-            SET {set_clause}
-            WHERE user_id = :user_id
+            UPDATE users
+            SET {set_clause},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :user_id
             """
         ),
         {**updates, "user_id": str(current_user.id)},
     )
+
+    # Если Telegram есть, обновляем и его таблицу. Если Telegram нет — это больше не ошибка.
+    if await service.has_telegram_account(current_user.id):
+        await db.execute(
+            text(
+                f"""
+                UPDATE telegram_accounts
+                SET {set_clause}
+                WHERE user_id = :user_id
+                """
+            ),
+            {**updates, "user_id": str(current_user.id)},
+        )
+
     await db.commit()
 
     return MessageResponse(message="Profile updated successfully")
@@ -208,15 +273,11 @@ async def get_my_web_account_info(
 
     return WebAccountInfoResponse(email=row["email"])
 
+
 @router.delete(
     "/me/telegram-link",
     response_model=MessageResponse,
     summary="Отвязать Telegram от текущего пользователя",
-    responses={
-        401: {"description": "Unauthorized"},
-        404: {"description": "User not found"},
-        409: {"description": "User is deleted"},
-    },
 )
 async def unlink_my_telegram(
     db: AsyncSession = Depends(get_db),
@@ -247,11 +308,6 @@ async def unlink_my_telegram(
     "/me/web-account",
     response_model=MessageResponse,
     summary="Удалить web-аккаунт текущего пользователя",
-    responses={
-        401: {"description": "Unauthorized"},
-        404: {"description": "User not found"},
-        409: {"description": "User is deleted"},
-    },
 )
 async def delete_my_web_account(
     db: AsyncSession = Depends(get_db),
@@ -282,11 +338,6 @@ async def delete_my_web_account(
     "/me",
     response_model=MessageResponse,
     summary="Удалить текущего пользователя и связанные данные",
-    responses={
-        400: {"description": "Invalid confirmation text"},
-        401: {"description": "Unauthorized"},
-        404: {"description": "User not found"},
-    },
 )
 async def delete_me(
     payload: DeleteAccountRequest,
@@ -318,10 +369,6 @@ async def delete_me(
     "/me/restore",
     response_model=MessageResponse,
     summary="Восстановить мягко удаленного пользователя",
-    responses={
-        401: {"description": "Unauthorized"},
-        404: {"description": "User not found"},
-    },
 )
 async def restore_me(
     db: AsyncSession = Depends(get_db),

@@ -27,11 +27,7 @@ spec:
               done
 
               echo "✅ База готова! Выполняем миграцию..."
-              PGPASSWORD="$POSTGRES_PASSWORD" psql \
-                -h db \
-                -U "$POSTGRES_USER" \
-                -d "$POSTGRES_DB" \
-                -f /scripts/001_initial.sql
+              PGPASSWORD="$POSTGRES_PASSWORD" psql -h db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /scripts/001_initial.sql
 
               echo "✅ Миграция успешно завершена!"
           volumeMounts:
@@ -41,4 +37,4 @@ spec:
       volumes:
         - name: script-volume
           configMap:
-            name: db-init-configmap
+            name: db-migration-sql

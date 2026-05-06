@@ -1,3 +1,9 @@
-echo ".venv" >> .dockerignore
-echo "__pycache__" >> .dockerignore
-echo "data" >> .dockerignore
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/
+data/
+media/
+.pytest_cache/
+.mypy_cache/

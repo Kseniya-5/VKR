@@ -4,7 +4,8 @@ metadata:
   name: fashion-config
 data:
   DATABASE_URL: "postgresql+asyncpg://fashion_user:fashion_password@postgres-service:5432/fashion_db"
-  PUBLIC_BASE_URL: "https://speech-nest-output-legs.trycloudflare.com"
+  API_BASE_URL: "http://fashion-api-service:8000"
+  PUBLIC_BASE_URL: "https://frontpage-facilities-basename-holdem.trycloudflare.com"
   JWT_ALGORITHM: "HS256"
   ACCESS_TOKEN_EXPIRE_MINUTES: "30"
 

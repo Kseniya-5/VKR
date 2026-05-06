@@ -1,0 +1,90 @@
+<!--
+  Файл: login-token.html
+  Описание: Одноразовый вход по ссылке восстановления доступа
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fashion Bot | Одноразовый вход</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+  <style>
+    .login-page { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .card { border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+  </style>
+</head>
+<body class="hold-transition login-page">
+<div class="login-box">
+  <div class="card card-outline card-primary">
+    <div class="card-header text-center">
+      <h1><b>Fashion</b>Bot</h1>
+      <p class="text-muted">Одноразовый вход</p>
+    </div>
+    <div class="card-body">
+      <div id="message" class="alert alert-info">
+        <i class="fas fa-spinner fa-spin mr-2"></i>Проверяем одноразовую ссылку...
+      </div>
+      <a href="/" class="btn btn-secondary btn-block mt-3">Вернуться на страницу входа</a>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { setAccessToken, fetchCurrentUser } from './assets/js/app.js';
+
+  const API_BASE_URL = `${window.location.origin}/api`;
+  const messageEl = document.getElementById('message');
+
+  function getTokenFromQuery() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('token');
+  }
+
+  async function loginWithToken() {
+    const token = getTokenFromQuery();
+    if (!token) {
+      messageEl.className = 'alert alert-danger';
+      messageEl.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>Токен не найден в ссылке.';
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login-with-reset-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        messageEl.className = 'alert alert-danger';
+        messageEl.innerHTML = `<i class="fas fa-exclamation-triangle mr-2"></i>${data.detail || 'Ссылка недействительна или уже использована.'}`;
+        return;
+      }
+
+      setAccessToken(data.access_token);
+      const me = await fetchCurrentUser();
+      if (!me || !me.id) {
+        setAccessToken(null);
+        messageEl.className = 'alert alert-danger';
+        messageEl.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>Не удалось открыть профиль. Попробуйте войти обычным способом.';
+        return;
+      }
+
+      messageEl.className = 'alert alert-success';
+      messageEl.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Вход выполнен. Открываем приложение...';
+      setTimeout(() => { window.location.href = '/dashboard'; }, 800);
+    } catch (err) {
+      console.error(err);
+      messageEl.className = 'alert alert-danger';
+      messageEl.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>Не удалось связаться с сервером.';
+    }
+  }
+
+  loginWithToken();
+</script>
+</body>
+</html>

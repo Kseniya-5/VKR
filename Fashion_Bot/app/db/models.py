@@ -30,6 +30,9 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
+    first_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+
     is_deleted = Column(Boolean, default=False, nullable=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 

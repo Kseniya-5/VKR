@@ -1,15 +1,15 @@
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from app.bot.states import ProfileEditState, LinkWebState, UploadPhotosState, DeletePhotosState
+from app.bot.states import ProfileEditState, LinkWebState, UploadPhotosState
 from app.core.security import create_access_token
+from app.core.config import settings
 from sqlalchemy import text as sql_text 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 import aiohttp
 import asyncio
-from aiogram import Bot
 import logging
 import json
 import re
@@ -50,7 +50,8 @@ SessionLocal = async_sessionmaker(
 
 
 logger = logging.getLogger(__name__)
-API_BASE_URL = "http://fashion-api-service:8000"
+API_BASE_URL = settings.api_base_url.rstrip("/")
+WEB_BASE_URL = settings.public_base_url.rstrip("/")
 
 
 async def is_user_registered(telegram_id: int) -> bool:
@@ -1463,14 +1464,74 @@ async def generate_web_link_callback(callback: CallbackQuery, state: FSMContext)
         await callback.answer()
         return
 
-    web_base_url = "http://127.0.0.1"
-    link_url = f"{web_base_url}/from-telegram?token={access_token}"
+    web_link = f"{WEB_BASE_URL}/from-telegram?token={access_token}"
 
     text = (
-        "🔗 <b>Ссылка для входа в веб-версию</b>\n\n"
-        "Нажмите на ссылку ниже, чтобы открыть веб-версию и "
-        "создать веб-аккаунт, привязанный к вашему Telegram.\n\n"
-        f"{link_url}"
+        "🔗 <b>Ссылка для первого входа в веб-версию</b>\n\n"
+        "Эта ссылка нужна, если у вас ещё нет веб-аккаунта. "
+        "По ней вы откроете веб-версию и создадите email+пароль для текущего Telegram-профиля.\n\n"
+        f"{web_link}"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=back_to_link_web_keyboard(),
+        disable_web_page_preview=False,
+    )
+
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=text,
+        current_keyboard="back_to_link_web",
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "link_existing_web")
+async def link_existing_web_callback(callback: CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
+        text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
+        await callback.message.edit_text(
+            text,
+            reply_markup=start_keyboard(is_registered=False),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="start",
+        )
+        await callback.answer()
+        return
+
+    access_token = await _get_access_token_for_telegram(telegram_id)
+    if not access_token:
+        text = "😔 Не удалось получить токен для привязки. Попробуйте позже."
+        await callback.message.edit_text(
+            text,
+            reply_markup=back_to_link_web_keyboard(),
+        )
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back_to_link_web",
+        )
+        await callback.answer()
+        return
+
+    web_link = f"{WEB_BASE_URL}/link-existing-web?token={access_token}"
+
+    text = (
+        "🔗 <b>Связать Telegram с существующим веб-аккаунтом</b>\n\n"
+        "Используйте этот вариант, если вы уже зарегистрировались и в Telegram, "
+        "и в веб-версии отдельно.\n\n"
+        "По ссылке ниже откроется страница, где нужно ввести email и пароль "
+        "вашего существующего веб-аккаунта. После подтверждения фотографии из Telegram "
+        "и web будут объединены в одном гардеробе.\n\n"
+        f"{web_link}"
     )
 
     await callback.message.edit_text(
@@ -1509,12 +1570,13 @@ async def link_web_callback(callback: CallbackQuery, state: FSMContext):
 
     text = (
         "🔗 <b>Связь с веб-версией</b>\n\n"
-        "Варианты:\n"
-        "1. Нажмите «🔑 Сгенерировать ссылку для входа в веб» — "
-        "бот создаст личную ссылку, по которой вы сможете зайти в веб-версию, "
-        "привязанную к вашему Telegram.\n"
-        "2. Или откройте веб-версию по ссылке ниже и используйте сценарий "
-        "«сначала веб → потом ТГ по коду». Для этого нужно будет сначала удалить ТГ-аккаунт и получить код до регистрации."
+        "Выберите подходящий вариант:\n\n"
+        "1. <b>Сгенерировать ссылку для первого входа в веб</b> — если у вас есть Telegram-профиль, "
+        "но ещё нет веб-аккаунта. По ссылке вы создадите email и пароль для этого же аккаунта.\n\n"
+        "2. <b>Связать с существующим веб-аккаунтом</b> — если вы уже отдельно зарегистрировались "
+        "и в Telegram, и в веб-версии. По ссылке вы введёте email/пароль веб-аккаунта, "
+        "а я объединю аккаунты и фотографии.\n\n"
+        "3. <b>Открыть веб-версию</b> — просто перейти на сайт."
     )
 
     await callback.message.edit_text(
@@ -1615,7 +1677,7 @@ async def upload_photo_callback(callback: CallbackQuery, state: FSMContext):
 
     text = (
         "📸 <b>Загрузка фото</b>\n\n"
-        "Отправьте одно или несколько фотографий подряд.\n"
+        "Отправьте одно или несколько фотографий подряд, где хорошо видно одежду.\n"
         "Я принимаю форматы: JPG, PNG, HEIC, WEBP — и автоматически "
         "конвертирую их в JPEG для дальнейшей работы.\n\n"
         "Если отправите не фото, я удалю сообщение и напомню, "
@@ -1687,7 +1749,7 @@ async def _update_upload_summary_message(
     else:
         text = (
             "📸 <b>Загрузка фото</b>\n\n"
-            "Отправьте одно или несколько фотографий подряд.\n"
+            "Отправьте одно или несколько фотографий подряд, где хорошо видно одежду.\n"
             "Я принимаю форматы: JPG, PNG, HEIC, WEBP."
         )
 
@@ -1877,6 +1939,34 @@ async def _delete_photo_messages(bot, chat_id: int, photo_message_ids: list[int]
         except Exception:
             pass
 
+async def _send_photo_from_url(
+    callback: CallbackQuery,
+    url: str,
+    photo_keyboard: InlineKeyboardMarkup,
+    filename: str = "photo.jpg",
+    access_token: str | None = None,
+):
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Не удалось скачать фото: status={resp.status}, url={url}")
+
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            if not content_type.startswith("image/"):
+                raise RuntimeError(
+                    f"URL вернул не изображение: content_type={content_type}, url={url}"
+                )
+
+            content = await resp.read()
+            if not content:
+                raise RuntimeError(f"Пустой ответ при скачивании фото: url={url}")
+
+    return await callback.message.answer_photo(
+        photo=BufferedInputFile(content, filename=filename),
+        reply_markup=photo_keyboard,
+    )
 
 async def _fetch_photos_page(
     access_token: str,
@@ -2010,7 +2100,6 @@ async def view_photos_callback(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-
 @router.callback_query(F.data.regexp(r"^view_photos_page_\d+$"))
 async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
     telegram_id = callback.from_user.id
@@ -2121,18 +2210,26 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_photo_{photo_id}")],
         ])
 
-        if telegram_file_id:
-            msg = await callback.message.answer_photo(
-                photo=telegram_file_id,
-                reply_markup=photo_keyboard,
-            )
-        else:
-            url = info["url"]
-            msg = await callback.message.answer_photo(
-                photo=url,
-                reply_markup=photo_keyboard,
-            )
-        new_ids.append(msg.message_id)
+        try:
+            if telegram_file_id:
+                msg = await callback.message.answer_photo(
+                    photo=telegram_file_id,
+                    reply_markup=photo_keyboard,
+                )
+            else:
+                url = f"{API_BASE_URL}/photos/{photo_id}/file"
+                msg = await _send_photo_from_url(
+                    callback=callback,
+                    url=url,
+                    photo_keyboard=photo_keyboard,
+                    filename=f"{photo_id}.jpg",
+                    access_token=access_token,
+                )
+
+            new_ids.append(msg.message_id)
+
+        except Exception as e:
+            logger.exception("Не удалось отправить фото photo_id=%s: %s", photo_id, e)
 
     if total <= 10 and page == 1:
         text = (
@@ -2171,7 +2268,6 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
     )
 
     await callback.answer()
-
 
 @router.callback_query(F.data == "view_photos_latest")
 async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext):
@@ -2266,18 +2362,26 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
             [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_photo_{photo_id}")],
         ])
 
-        if telegram_file_id:
-            msg = await callback.message.answer_photo(
-                photo=telegram_file_id,
-                reply_markup=photo_keyboard,
-            )
-        else:
-            url = info["url"]
-            msg = await callback.message.answer_photo(
-                photo=url,
-                reply_markup=photo_keyboard,
-            )
-        new_ids.append(msg.message_id)
+        try:
+            if telegram_file_id:
+                msg = await callback.message.answer_photo(
+                    photo=telegram_file_id,
+                    reply_markup=photo_keyboard,
+                )
+            else:
+                url = f"{API_BASE_URL}/photos/{photo_id}/file"
+                msg = await _send_photo_from_url(
+                    callback=callback,
+                    url=url,
+                    photo_keyboard=photo_keyboard,
+                    filename=f"{photo_id}.jpg",
+                    access_token=access_token,
+                )
+
+            new_ids.append(msg.message_id)
+
+        except Exception as e:
+            logger.exception("Не удалось отправить фото photo_id=%s: %s", photo_id, e)
 
     shown = len(items)
     if total == 1:

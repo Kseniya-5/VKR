@@ -15,3 +15,5 @@ class UserProfileResponse(BaseModel):
     is_deleted: bool
     has_telegram: bool
     has_web_account: bool
+    first_name: str | None = None
+    last_name: str | None = None

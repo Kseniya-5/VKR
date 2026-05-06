@@ -1,9 +1,3 @@
-<!-- 
-  Файл: profile.html
-  Описание: Страница редактирования профиля пользователя
-  Разработано с помощью: Perplexity AI (модель Claude Sonnet 4.5)
-  Шаблон: AdminLTE 3 (https://adminlte.io)
--->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -18,7 +12,6 @@
 <body class="hold-transition sidebar-mini">
 <div class="wrapper">
 
-  <!-- Navbar -->
   <nav class="main-header navbar navbar-expand navbar-white navbar-light">
     <ul class="navbar-nav">
       <li class="nav-item">
@@ -27,66 +20,31 @@
     </ul>
     <ul class="navbar-nav ml-auto">
       <li class="nav-item">
-        <a class="nav-link" href="#" onclick="logout()">
-          <i class="fas fa-sign-out-alt"></i> Выход
-        </a>
+        <a class="nav-link" href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Выход</a>
       </li>
     </ul>
   </nav>
 
-  <!-- Sidebar -->
   <aside class="main-sidebar sidebar-dark-primary elevation-4">
     <a href="/dashboard" class="brand-link">
       <i class="fas fa-tshirt brand-image"></i>
       <span class="brand-text font-weight-light">Fashion Bot</span>
     </a>
-
     <div class="sidebar">
       <nav class="mt-2">
         <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
-          <li class="nav-item">
-            <a href="/dashboard" class="nav-link">
-              <i class="nav-icon fas fa-tachometer-alt"></i>
-              <p>Панель управления</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/photos" class="nav-link">
-              <i class="nav-icon fas fa-images"></i>
-              <p>Мои фото</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/profile" class="nav-link active">
-              <i class="nav-icon fas fa-user"></i>
-              <p>Профиль</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/settings" class="nav-link">
-              <i class="nav-icon fas fa-cog"></i>
-              <p>Настройки</p>
-            </a>
-          </li>
+          <li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon fas fa-tachometer-alt"></i><p>Панель управления</p></a></li>
+          <li class="nav-item"><a href="/photos" class="nav-link"><i class="nav-icon fas fa-images"></i><p>Мои фото</p></a></li>
+          <li class="nav-item"><a href="/profile" class="nav-link active"><i class="nav-icon fas fa-user"></i><p>Профиль</p></a></li>
+          <li class="nav-item"><a href="/settings" class="nav-link"><i class="nav-icon fas fa-cog"></i><p>Настройки</p></a></li>
           <li class="nav-header">ФУНКЦИИ (скоро)</li>
-          <li class="nav-item">
-            <a href="/recommendations" class="nav-link">
-              <i class="nav-icon fas fa-lightbulb"></i>
-              <p>Рекомендации</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/outfits" class="nav-link">
-              <i class="nav-icon fas fa-vest"></i>
-              <p>Собрать образ</p>
-            </a>
-          </li>
+          <li class="nav-item"><a href="/recommendations" class="nav-link"><i class="nav-icon fas fa-lightbulb"></i><p>Рекомендации</p></a></li>
+          <li class="nav-item"><a href="/outfits" class="nav-link"><i class="nav-icon fas fa-vest"></i><p>Собрать образ</p></a></li>
         </ul>
       </nav>
     </div>
   </aside>
 
-  <!-- Content Wrapper -->
   <div class="content-wrapper">
     <div class="content-header">
       <div class="container-fluid">
@@ -96,9 +54,7 @@
 
     <section class="content">
       <div class="container-fluid">
-        
         <div class="row">
-          <!-- Информация о профиле -->
           <div class="col-md-6">
             <div class="card">
               <div class="card-header">
@@ -106,7 +62,6 @@
               </div>
               <div class="card-body">
                 <dl class="row">
-
                   <dt class="col-sm-4">Email:</dt>
                   <dd class="col-sm-8" id="user-email">—</dd>
 
@@ -126,13 +81,15 @@
             </div>
           </div>
 
-          <!-- Редактирование профиля -->
           <div class="col-md-6">
             <div class="card">
               <div class="card-header">
                 <h3 class="card-title"><i class="fas fa-edit mr-2"></i>Редактировать профиль</h3>
               </div>
               <div class="card-body">
+                <p class="text-muted">
+                  Имя и фамилию теперь можно заполнить и без Telegram-аккаунта. Если Telegram привязан, бот тоже будет показывать эти данные.
+                </p>
                 <form id="update-profile-form">
                   <div class="form-group">
                     <label>Имя</label>
@@ -152,7 +109,6 @@
           </div>
         </div>
 
-        <!-- Привязанные аккаунты -->
         <div class="row">
           <div class="col-md-12">
             <div class="card">
@@ -189,13 +145,12 @@
             </div>
           </div>
         </div>
-
       </div>
     </section>
   </div>
 
   <footer class="main-footer">
-    <strong>Fashion Bot &copy; 2026</strong> | Разработано с помощью Perplexity AI
+    <strong>Fashion Bot &copy; 2026</strong>
   </footer>
 </div>
 
@@ -204,24 +159,24 @@
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
 
 <script>
-  const API_BASE_URL = window.location.origin;
+  const API_BASE_URL = `${window.location.origin}/api`;
   const token = localStorage.getItem('access_token');
 
-  if (!token) {
-    window.location.href = '/';
-  }
+  if (!token) window.location.href = '/';
 
   function logout() {
     localStorage.removeItem('access_token');
     window.location.href = '/';
   }
 
-  // Загрузка профиля
+  function authHeaders(extra = {}) {
+    return { ...extra, 'Authorization': `Bearer ${token}` };
+  }
+
   async function loadProfile() {
     try {
-      // Основная информация
       const profileResp = await fetch(`${API_BASE_URL}/users/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: authHeaders()
       });
 
       if (!profileResp.ok) {
@@ -229,21 +184,32 @@
           logout();
           return;
         }
-        throw new Error('Failed to load profile');
+        const text = await profileResp.text();
+        throw new Error(`Failed to load profile: ${profileResp.status} ${text}`);
       }
 
       const profile = await profileResp.json();
-      
-      document.getElementById('user-id').textContent = profile.id.substring(0, 8) + '...';
-      
+      const firstName = profile.first_name || '';
+      const lastName = profile.last_name || '';
+
+      document.getElementById('user-first-name').textContent = firstName || '—';
+      document.getElementById('user-last-name').textContent = lastName || '—';
+      document.getElementById('edit-first-name').value = firstName;
+      document.getElementById('edit-last-name').value = lastName;
+
       if (profile.is_deleted) {
         document.getElementById('user-status').textContent = 'Удалён';
         document.getElementById('user-status').className = 'badge badge-danger';
+      } else if (profile.has_telegram && profile.has_web_account) {
+        document.getElementById('user-status').textContent = 'Полный аккаунт';
+      } else if (profile.has_web_account) {
+        document.getElementById('user-status').textContent = 'Web';
+      } else if (profile.has_telegram) {
+        document.getElementById('user-status').textContent = 'Telegram';
       }
 
-      // Web аккаунт
       const webResp = await fetch(`${API_BASE_URL}/users/me/web-account`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: authHeaders()
       });
 
       if (webResp.ok) {
@@ -257,9 +223,8 @@
         }
       }
 
-      // Telegram аккаунт
       const tgResp = await fetch(`${API_BASE_URL}/users/me/telegram`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: authHeaders()
       });
 
       if (tgResp.ok) {
@@ -267,49 +232,49 @@
         if (tgData.telegram_id) {
           const username = tgData.username ? `@${tgData.username}` : `ID: ${tgData.telegram_id}`;
           document.getElementById('user-telegram').textContent = username;
-          document.getElementById('user-first-name').textContent = tgData.first_name || '—';
-          document.getElementById('user-last-name').textContent = tgData.last_name || '—';
           document.getElementById('telegram-status').innerHTML = '<i class="fas fa-check-circle text-success mr-2"></i>Подключен';
-          
-          // Заполняем форму редактирования
-          document.getElementById('edit-first-name').value = tgData.first_name || '';
-          document.getElementById('edit-last-name').value = tgData.last_name || '';
         } else {
           document.getElementById('user-telegram').textContent = 'Не привязан';
           document.getElementById('telegram-status').innerHTML = '<i class="fas fa-times-circle text-danger mr-2"></i>Не подключен';
         }
       }
-
     } catch (err) {
       console.error('Error loading profile:', err);
-      alert('Не удалось загрузить профиль');
+      alert('Не удалось загрузить профиль. Проверьте /api/users/me в Network.');
     }
   }
 
-  // Обновление профиля
   document.getElementById('update-profile-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
     const firstName = document.getElementById('edit-first-name').value.trim();
     const lastName = document.getElementById('edit-last-name').value.trim();
     const messageEl = document.getElementById('update-message');
+    const nameRegex = /^[a-zA-Zа-яА-ЯёЁ\s\-']+$/;
+
+    if (firstName && !nameRegex.test(firstName)) {
+      messageEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Имя может содержать только буквы, пробелы, дефисы и апострофы</div>';
+      return;
+    }
+    if (lastName && !nameRegex.test(lastName)) {
+      messageEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Фамилия может содержать только буквы, пробелы, дефисы и апострофы</div>';
+      return;
+    }
 
     messageEl.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin mr-2"></i>Сохранение...</div>';
 
     try {
       const response = await fetch(`${API_BASE_URL}/users/me`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           first_name: firstName || null,
           last_name: lastName || null
         })
       });
 
-      const data = await response.json();
+      let data = {};
+      try { data = await response.json(); } catch (_) {}
 
       if (!response.ok) {
         messageEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>${data.detail || 'Ошибка обновления'}</div>`;
@@ -317,12 +282,8 @@
       }
 
       messageEl.innerHTML = '<div class="alert alert-success"><i class="fas fa-check mr-2"></i>Профиль успешно обновлён!</div>';
-      
-      setTimeout(() => {
-        loadProfile();
-        messageEl.innerHTML = '';
-      }, 2000);
-
+      await loadProfile();
+      setTimeout(() => { messageEl.innerHTML = ''; }, 2000);
     } catch (err) {
       console.error(err);
       messageEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Не удалось связаться с сервером</div>';

@@ -1,6 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from app.core.config import settings
 
-WEB_BASE_URL = "https://speech-nest-output-legs.trycloudflare.com"
+WEB_BASE_URL = settings.public_base_url.rstrip("/")
 
 def start_keyboard(is_registered: bool) -> InlineKeyboardMarkup:
     buttons = []
@@ -163,7 +164,16 @@ def link_web_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔑 Сгенерировать ссылку для входа в веб", callback_data="generate_web_link")
+                InlineKeyboardButton(
+                    text="🔑 Сгенерировать ссылку для первого входа в веб",
+                    callback_data="generate_web_link",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔗 Связать с существующим веб-аккаунтом",
+                    callback_data="link_existing_web",
+                )
             ],
             [
                 InlineKeyboardButton(text="🌐 Открыть веб-версию", url=WEB_BASE_URL)

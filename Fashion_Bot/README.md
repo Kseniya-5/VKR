@@ -104,6 +104,7 @@ cloudflared tunnel --url http://localhost:8080 --loglevel debug
 # 3. Взять выданный URL вида https://xxxx.trycloudflare.com
 # 4. Подставить его в:
 #    app/bot/keyboards.py
+#    app/bot/base.py
 #    k8s/configmap.yaml
 
 # 5. Применить конфиг и перезапустить pod'ы

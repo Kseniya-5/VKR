@@ -96,7 +96,7 @@ chmod +x stop.sh
 ### 2. Локально проверить работу ТГ + Веб через туннель
 ```bash
 # 1. Поднять локальный доступ к nginx в терминале 1
-kubectl port-forward svc/fashion-nginx-service 8080:80
+kubectl port-forward svc/nginx-service 8080:80
 
 # 2. Поднять Cloudflare tunnel в терминале 2
 cloudflared tunnel --url http://localhost:8080 --loglevel debug

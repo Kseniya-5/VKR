@@ -35,10 +35,6 @@
    GHCR_USERNAME=your_login
    # Personal Access Token (classic) с правами write:packages, read:packages, delete:packages
    GHCR_TOKEN=ghp_***
-   
-   # Логин и пароль для доступа к веб-интерфейсу бота через Nginx
-   NGINX_AUTH_USER=your_login
-   NGINX_AUTH_PASSWORD=your_password
    ```
 
 #### Как получить токен бота?
@@ -79,143 +75,53 @@
 
 ***
 
-## Настройка и запуск
-### 1. Запуск через чистый Docker (Не нужно)
-1. Склонируйте репозиторий:
-   ```bash
-   git clone https://github.com/Kseniya-5/VKR.git
-   cd VKR/Fashion_Bot
-   ```
-2. Убедитесь, что создали файл .env
-   
-3. Соберите Docker-образ для linux:
-   ```bash
-   sudo docker build -t fashion-bot .
-   ```
-
-4. Запустите контейнер:
-   ```bash
-   sudo docker run -d --env-file .env --name my-fashion-bot fashion-bot
-   ```
-
-5. Проверка логов
-   ```bash
-   sudo docker logs my-fashion-bot
-   ```
-   
-#### Если нужно пересобрать Docker-образ
-
-6. Удалите старый контейнер
-   ```bash
-   sudo docker rm my-fashion-bot
-   ```
-
-7. Повторите пункты 3-5.
-
-***
-
-### 2. Запуск через Docker Compose (Полное Production окружение), но лучше запускать через Kubernetes
-Этот способ поднимает всю архитектуру: бота, веб-сервер, Nginx (Reverse Proxy), Redis, БД и Celery-воркер.
-1. Убедитесь, что находитесь в папке проекта и файл .env создан
-2. Поднимите окружение
-   ```bash
-   sudo docker-compose up --build -d
-   ```
-3. Проверьте статус контейнеров
-    ```bash
-   sudo docker-compose ps
-   ```
-<img width="1110" height="165" alt="image" src="https://github.com/user-attachments/assets/10b26700-de0c-4466-9232-c81bb3e371f9" />
-    
-4. Логи всех сервисов (полезно для поиска ошибок)
-    ```bash
-   sudo docker-compose logs -f
-   ```
-5. Остановите проект
-    ```bash
-   sudo docker-compose down
-   ```
-
-#### Жесткий перезапуск Docker
-1. Если не помогло ...
-   ```bash
-   sudo reboot
-   ```
-2. Очистка старых зависших контейнеров
-   ```bash
-   sudo docker-compose down
-   ```
-3.  Запуск с новыми настройками
-   ```bash
-   sudo docker-compose up --build -d
-   ```
-***
-
-### 3. Запуск проекта через Kubernetes (Полное Production окружение)
+### 1. Запуск проекта через Kubernetes (Полное Production окружение)
 Проект полностью адаптирован для работы в Kubernetes-кластере с использованием `Minikube`. Все манифесты находятся в директории `k8s/`
-1. Сделайте скрипт исполняемым (это нужно сделать только один раз):
+
 ```bash
+# 1. Сделайте скрипт исполняемым (это нужно сделать только один раз):
 chmod +x deploy.sh
-```
-2. Для запуска или обновления проекта достаточно просто написать в терминале:
-```bash
+# 2. Для запуска или обновления проекта достаточно просто написать в терминале:
 ./deploy.sh
-```
-3. Убедитесь, что все компоненты (поды) перешли в статус `Running`. Это может занять около 1-2 минут (при первом запуске скачиваются образы БД и Redis):
 
-```bash
-# Проверка статуса подов
-kubectl get pods
-```
-<img width="807" height="199" alt="image" src="https://github.com/user-attachments/assets/b02c1f66-8f74-4b89-98a6-5998d699c6a2" /> <br/>
-```bash
-# Проверка созданных сервисов
-kubectl get services
-```
-<img width="952" height="197" alt="image" src="https://github.com/user-attachments/assets/d71c392d-597e-4362-8187-4c25e3f25a87" /> <br/>
-
-
-4. Если нужно проверить логи конкретного компонента:
-```bash
-# Логи Telegram-бота
-kubectl logs deployment/telegram-bot
-
-# Логи Celery-воркера
-kubectl logs deployment/worker
-
-# Логи базы данных
-kubectl logs deployment/db
-```
-5. Nginx доступен извне кластера через сервис типа `NodePort`. Чтобы получить прямую ссылку для открытия в браузере, выполните:
-```bash
-minikube service nginx-service --url
-```
-#### Управление кластером (Остановка)
-6. Сделайте скрипт исполняемым (один раз)
-```bash
+# Управление кластером (Остановка)
+# 3. Сделайте скрипт исполняемым (один раз)
 chmod +x stop.sh
-```
-7. Теперь для остановки проекта просто запустите:
-```bash
+# 4. Теперь для остановки проекта просто запустите:
 ./stop.sh
 ```
+
 ***
 
-# Проверка работоспособности
-## Проверка асинхронной очереди задач (Celery + Redis + DB)
-1. После успешного запуска через docker-compose и проверки запуска контейнеров в терминале можно увидеть следующее:
-<img width="2031" height="168" alt="image" src="https://github.com/user-attachments/assets/a3cd2651-9968-4544-b7b4-66e253d55888" />
+### 2. Локально проверить работу ТГ + Веб через туннель
+```bash
+# 1. Поднять локальный доступ к nginx в терминале 1
+kubectl port-forward svc/fashion-nginx-service 8080:80
 
-2. После этого Вы можете проверить работу очереди задач в Telegram (мой бот @FashionableSelectionBot). Задачи принимаются моментально, а их выполнение и изменение статусов происходит в фоновом режиме:
-<img width="1460" height="997" alt="image" src="https://github.com/user-attachments/assets/fd4ae74f-82c6-492a-9f48-f11c77eebbcc" />
+# 2. Поднять Cloudflare tunnel в терминале 2
+cloudflared tunnel --url http://localhost:8080 --loglevel debug
 
-3. Все изменения статусов надежно сохраняются в базу данных PostgreSQL (model_tasks):
-<img width="1482" height="188" alt="image" src="https://github.com/user-attachments/assets/d7de4ab6-23c5-43f1-b02c-e228d2154c66" />
+# 3. Взять выданный URL вида https://xxxx.trycloudflare.com
+# 4. Подставить его в:
+#    app/bot/keyboards.py
+#    k8s/configmap.yaml
 
-## Проверка Nginx (Reverse Proxy и статика)
-Приложение работает в режиме Production (DEBUG=False).
-1. После успешного запуска через docker-compose и проверки запуска контейнеров в терминале можно увидеть следующее: <br/> <img width="1280" height="125" alt="image" src="https://github.com/user-attachments/assets/314573e9-67e0-49cd-94ac-43a905dbb3cf" />
-2. Откройте браузер и перейдите по адресу <mark> http://localhost:8888 </mark> — Nginx успешно проксирует запрос к приложению и возвращает ответ от веб-сервера бота <br/> <img width="689" height="97" alt="image" src="https://github.com/user-attachments/assets/aa550deb-118a-44a8-9de3-6eb5d7fe1520" />
+# 5. Применить конфиг и перезапустить pod'ы
+kubectl apply -f k8s/configmap.yaml
+docker build --no-cache -t fashion-bot:v2 .
+minikube image load fashion-bot:v2
+kubectl delete pod -l app=telegram-bot
+kubectl delete pod -l app=fashion-api
+kubectl delete pod -l app=fashion-nginx
+
+# 6. Смотреть логи в новых терминалах 3, 4, 5
+kubectl logs -f deployment/telegram-bot --tail=100
+kubectl logs -f deployment/fashion-api --tail=100
+kubectl logs -f deployment/fashion-nginx --tail=100
+
+```
+
+
 
 
 

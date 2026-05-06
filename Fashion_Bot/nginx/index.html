@@ -152,7 +152,7 @@
       </div>
       <form id="forgot-password-form">
         <div class="modal-body">
-          <p class="text-muted">Введите email веб-аккаунта. Если аккаунт существует, мы отправим одноразовую ссылку для входа в привязанный Telegram или на email, если SMTP настроен.</p>
+          <p class="text-muted">Введите email веб-аккаунта. Если аккаунт существует, мы отправим одноразовую ссылку для входа в привязанный Telegram.</p>
           <div class="form-group">
             <label for="forgot-email">Email</label>
             <input type="email" class="form-control" id="forgot-email" placeholder="you@example.com" required>
@@ -315,9 +315,9 @@
       messageEl.innerHTML = `
         <div class="alert alert-success">
           <i class="fas fa-check-circle mr-2"></i>
-          ${data.message || 'Если такой email существует, одноразовая ссылка отправлена.'}
+          ${data.message || 'Если аккаунт существует и связан с Telegram, одноразовая ссылка отправлена в Telegram.'}
         </div>
-        <p class="small text-muted mb-0">Для локальной отладки без SMTP ссылка также выводится в логах fashion-api.</p>
+        
       `;
     } catch (err) {
       console.error(err);

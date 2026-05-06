@@ -25,8 +25,8 @@ from app.api.schemas.auth import (
     RegisterFromTelegramRequest,
 )
 from app.core.config import settings
-from app.core.deps import get_current_user
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.deps import get_current_user, oauth2_scheme
+from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db.models import AccountLinkCode, PasswordResetToken, TelegramAccount, User, WebAccount
 from app.db.session import get_db
 
@@ -47,6 +47,27 @@ class LinkExistingWebFromTelegramRequest(BaseModel):
 
 class OneTimeLoginRequest(BaseModel):
     token: str = Field(min_length=10, max_length=256)
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str | None = Field(None, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        import re
+
+        password = value.strip()
+        if len(password) < 8:
+            raise ValueError("Пароль слишком короткий")
+        if len(password) > 128:
+            raise ValueError("Пароль слишком длинный")
+        if not re.search(r"[A-Za-zА-Яа-я]", password):
+            raise ValueError("Пароль должен содержать хотя бы одну букву")
+        if not re.search(r"\d", password):
+            raise ValueError("Пароль должен содержать хотя бы одну цифру")
+        return password
 
 
 def _build_one_time_login_link(raw_token: str) -> str:
@@ -99,10 +120,11 @@ async def _send_email_login_link(to_email: str, login_link: str) -> bool:
         return False
 
 
-async def _send_telegram_login_link(telegram_id: int, login_link: str) -> bool:
+async def _send_telegram_login_link(telegram_id: int, login_link: str) -> tuple[bool, int | None]:
+    """Send one-time login link to Telegram and return (delivered, message_id)."""
     if aiohttp is None:
         print("[PASSWORD RECOVERY] aiohttp is not available, cannot send Telegram message")
-        return False
+        return False, None
 
     text_body = (
         "🔐 <b>Одноразовый вход в Fashion Bot</b>\n\n"
@@ -125,14 +147,54 @@ async def _send_telegram_login_link(telegram_id: int, login_link: str) -> bool:
                 },
                 timeout=15,
             ) as resp:
+                body = await resp.text()
                 if resp.status != 200:
-                    body = await resp.text()
                     print(f"[PASSWORD RECOVERY] Telegram send failed: status={resp.status} body={body}")
-                    return False
-                return True
+                    return False, None
+                try:
+                    import json
+                    payload = json.loads(body)
+                    message_id = payload.get("result", {}).get("message_id")
+                except Exception:
+                    message_id = None
+                return True, message_id
     except Exception as exc:
         print(f"[PASSWORD RECOVERY] Telegram send exception for {telegram_id}: {exc}")
+        return False, None
+
+
+async def _delete_telegram_message(chat_id: int | None, message_id: int | None) -> bool:
+    if not chat_id or not message_id or aiohttp is None:
         return False
+
+    url = f"https://api.telegram.org/bot{settings.bot_token}/deleteMessage"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json={"chat_id": chat_id, "message_id": message_id},
+                timeout=15,
+            ) as resp:
+                if resp.status == 200:
+                    return True
+                body = await resp.text()
+                print(f"[PASSWORD RECOVERY] Telegram delete failed: status={resp.status} body={body}")
+                return False
+    except Exception as exc:
+        print(f"[PASSWORD RECOVERY] Telegram delete exception: {exc}")
+        return False
+
+
+async def _delete_telegram_message_after_delay(
+    chat_id: int | None,
+    message_id: int | None,
+    delay_seconds: int = 15 * 60,
+) -> None:
+    """Best-effort cleanup. If the API pod restarts during the delay, the message may remain."""
+    if not chat_id or not message_id:
+        return
+    await asyncio.sleep(delay_seconds)
+    await _delete_telegram_message(chat_id, message_id)
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -481,7 +543,7 @@ async def forgot_password(
     web_account: WebAccount | None = result.scalar_one_or_none()
 
     generic_response = {
-        "message": "Если такой email существует, одноразовая ссылка для входа отправлена в Telegram или на email."
+        "message": "Если такой email существует и веб-аккаунт связан с Telegram, одноразовая ссылка для входа отправлена в Telegram."
     }
 
     if not web_account:
@@ -511,6 +573,8 @@ async def forgot_password(
     await db.commit()
 
     delivered = False
+    telegram_chat_id: int | None = None
+    telegram_message_id: int | None = None
 
     tg_result = await db.execute(
         text(
@@ -526,13 +590,38 @@ async def forgot_password(
     telegram_id = tg_result.scalar_one_or_none()
 
     if telegram_id:
-        delivered = await _send_telegram_login_link(int(telegram_id), login_link) or delivered
+        telegram_chat_id = int(telegram_id)
+        delivered, telegram_message_id = await _send_telegram_login_link(telegram_chat_id, login_link)
 
-    delivered = await _send_email_login_link(web_account.email, login_link) or delivered
+    # SMTP remains a local-development fallback, but the visible UI promises Telegram delivery
+    # only for linked accounts.
+    if not delivered:
+        delivered = await _send_email_login_link(web_account.email, login_link) or delivered
+
+    if telegram_chat_id and telegram_message_id:
+        await db.execute(
+            text(
+                """
+                UPDATE password_reset_tokens
+                SET telegram_chat_id = :telegram_chat_id,
+                    telegram_message_id = :telegram_message_id
+                WHERE token_hash = :token_hash
+                """
+            ),
+            {
+                "telegram_chat_id": telegram_chat_id,
+                "telegram_message_id": telegram_message_id,
+                "token_hash": token_hash,
+            },
+        )
+        await db.commit()
+        asyncio.create_task(
+            _delete_telegram_message_after_delay(telegram_chat_id, telegram_message_id)
+        )
 
     if not delivered:
         print(
-            "[ONE-TIME LOGIN] SMTP is not configured or delivery failed. "
+            "[ONE-TIME LOGIN] Telegram is not linked and SMTP is not configured or delivery failed. "
             f"Link for {web_account.email}: {login_link}"
         )
 
@@ -549,7 +638,7 @@ async def login_with_reset_token(
     result = await db.execute(
         text(
             """
-            SELECT id, user_id, expires_at, used_at
+            SELECT id, user_id, expires_at, used_at, telegram_chat_id, telegram_message_id
             FROM password_reset_tokens
             WHERE token_hash = :token_hash
             LIMIT 1
@@ -589,16 +678,33 @@ async def login_with_reset_token(
         text(
             """
             UPDATE password_reset_tokens
-            SET used_at = :used_at
+            SET used_at = :used_at,
+                telegram_message_deleted_at = :telegram_message_deleted_at
             WHERE id = :id
             """
         ),
-        {"used_at": now, "id": str(row["id"])},
+        {
+            "used_at": now,
+            "telegram_message_deleted_at": now,
+            "id": str(row["id"]),
+        },
     )
     await db.commit()
 
-    access_token = create_access_token(subject=str(user_id))
-    return {"access_token": access_token, "token_type": "bearer"}
+    await _delete_telegram_message(
+        row.get("telegram_chat_id"),
+        row.get("telegram_message_id"),
+    )
+
+    access_token = create_access_token(
+        subject=str(user_id),
+        extra_claims={"login_method": "one_time"},
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "login_method": "one_time",
+    }
 
 
 @router.post("/reset-password")
@@ -663,6 +769,54 @@ async def reset_password(
     await db.commit()
 
     return {"message": "Пароль успешно обновлён"}
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Change password for the current web account.
+
+    Normal login: requires old password.
+    One-time Telegram login: old password is not required, because the login link was
+    already delivered to the linked Telegram and used exactly once.
+    """
+    token_payload = decode_access_token(token) or {}
+    login_method = token_payload.get("login_method")
+
+    result = await db.execute(
+        select(WebAccount).where(WebAccount.user_id == current_user.id)
+    )
+    web_account: WebAccount | None = result.scalar_one_or_none()
+
+    if not web_account:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="У текущего пользователя нет веб-аккаунта",
+        )
+
+    is_one_time_login = login_method == "one_time"
+
+    if not is_one_time_login:
+        if not payload.old_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Введите старый пароль",
+            )
+        if not verify_password(payload.old_password, web_account.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Старый пароль указан неверно",
+            )
+
+    web_account.password_hash = hash_password(payload.new_password)
+    await db.commit()
+
+    return {"message": "Пароль успешно изменён"}
 
 
 @router.post("/token")

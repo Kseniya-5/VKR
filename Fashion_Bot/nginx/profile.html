@@ -111,6 +111,40 @@
 
         <div class="row">
           <div class="col-md-12">
+            <div class="card card-primary card-outline">
+              <div class="card-header">
+                <h3 class="card-title"><i class="fas fa-key mr-2"></i>Изменить пароль</h3>
+              </div>
+              <div class="card-body">
+                <p class="text-muted" id="password-help-text">
+                  Если вы вошли по одноразовой ссылке из Telegram, достаточно задать новый пароль.
+                  При обычном входе нужно указать старый пароль.
+                </p>
+                <form id="change-password-form">
+                  <div class="form-group" id="old-password-group">
+                    <label>Старый пароль</label>
+                    <input type="password" class="form-control" id="old-password" placeholder="Введите текущий пароль">
+                  </div>
+                  <div class="form-group">
+                    <label>Новый пароль</label>
+                    <input type="password" class="form-control" id="new-password" placeholder="Минимум 8 символов, буквы и цифры" minlength="8" required>
+                  </div>
+                  <div class="form-group">
+                    <label>Подтвердите новый пароль</label>
+                    <input type="password" class="form-control" id="new-password-confirm" placeholder="Повторите новый пароль" minlength="8" required>
+                  </div>
+                  <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save mr-2"></i>Изменить пароль
+                  </button>
+                </form>
+                <div id="password-message" class="mt-3"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-md-12">
             <div class="card">
               <div class="card-header">
                 <h3 class="card-title"><i class="fas fa-link mr-2"></i>Привязанные аккаунты</h3>
@@ -171,6 +205,23 @@
 
   function authHeaders(extra = {}) {
     return { ...extra, 'Authorization': `Bearer ${token}` };
+  }
+
+  function setupPasswordFormMode() {
+    const loginMethod = localStorage.getItem('login_method');
+    const oldPasswordGroup = document.getElementById('old-password-group');
+    const oldPasswordInput = document.getElementById('old-password');
+    const helpText = document.getElementById('password-help-text');
+
+    if (loginMethod === 'one_time') {
+      oldPasswordGroup.style.display = 'none';
+      oldPasswordInput.required = false;
+      helpText.innerHTML = 'Вы вошли по одноразовой ссылке из Telegram. Укажите новый пароль, чтобы дальше входить обычным способом.';
+    } else {
+      oldPasswordGroup.style.display = 'block';
+      oldPasswordInput.required = true;
+      helpText.innerHTML = 'Для изменения пароля введите старый пароль, новый пароль и подтверждение.';
+    }
   }
 
   async function loadProfile() {
@@ -289,6 +340,62 @@
       messageEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Не удалось связаться с сервером</div>';
     }
   });
+
+  document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const loginMethod = localStorage.getItem('login_method');
+    const oldPassword = document.getElementById('old-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const newPasswordConfirm = document.getElementById('new-password-confirm').value;
+    const messageEl = document.getElementById('password-message');
+
+    if (newPassword !== newPasswordConfirm) {
+      messageEl.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-circle mr-2"></i>Новые пароли не совпадают</div>';
+      return;
+    }
+
+    if (newPassword.length < 8 || !/[A-Za-zА-Яа-я]/.test(newPassword) || !/\d/.test(newPassword)) {
+      messageEl.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-circle mr-2"></i>Пароль должен быть не короче 8 символов и содержать буквы и цифры</div>';
+      return;
+    }
+
+    if (loginMethod !== 'one_time' && !oldPassword) {
+      messageEl.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-circle mr-2"></i>Введите старый пароль</div>';
+      return;
+    }
+
+    messageEl.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin mr-2"></i>Меняем пароль...</div>';
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          old_password: loginMethod === 'one_time' ? null : oldPassword,
+          new_password: newPassword
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        messageEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>${data.detail || 'Не удалось изменить пароль'}</div>`;
+        return;
+      }
+
+      localStorage.removeItem('login_method');
+      setupPasswordFormMode();
+      document.getElementById('change-password-form').reset();
+      messageEl.innerHTML = '<div class="alert alert-success"><i class="fas fa-check mr-2"></i>Пароль успешно изменён. Теперь можно входить обычным способом.</div>';
+      setTimeout(() => { messageEl.innerHTML = ''; }, 3000);
+    } catch (err) {
+      console.error(err);
+      messageEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Не удалось связаться с сервером</div>';
+    }
+  });
+
+  setupPasswordFormMode();
 
   loadProfile();
 </script>

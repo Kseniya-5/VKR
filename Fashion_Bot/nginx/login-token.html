@@ -66,6 +66,7 @@
       }
 
       setAccessToken(data.access_token);
+      localStorage.setItem('login_method', data.login_method || 'one_time');
       const me = await fetchCurrentUser();
       if (!me || !me.id) {
         setAccessToken(null);

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from jose import JWTError, ExpiredSignatureError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 from pwdlib import PasswordHash
 
 from app.core.config import settings
@@ -22,7 +22,11 @@ def verify_password(password: str, password_hash: str) -> bool:
     return password_hasher.verify(_pepper_password(password), password_hash)
 
 
-def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
+def create_access_token(
+    subject: str,
+    expires_minutes: int | None = None,
+    extra_claims: dict[str, Any] | None = None,
+) -> str:
     now = datetime.now(timezone.utc)
     expire = now + timedelta(
         minutes=expires_minutes or settings.access_token_expire_minutes
@@ -34,6 +38,12 @@ def create_access_token(subject: str, expires_minutes: int | None = None) -> str
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
     }
+
+    if extra_claims:
+        # Do not allow callers to override security-critical registered claims.
+        for key, value in extra_claims.items():
+            if key not in {"sub", "type", "iat", "exp"}:
+                payload[key] = value
 
     return jwt.encode(
         payload,

@@ -1,7 +1,11 @@
+-- Добавляет имя и фамилию на уровень общего пользователя.
+-- Это нужно, чтобы web-only пользователь мог заполнить профиль без Telegram.
+
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS first_name VARCHAR(255),
     ADD COLUMN IF NOT EXISTS last_name VARCHAR(255);
 
+-- Для уже существующих пользователей, пришедших из Telegram, переносим данные из telegram_accounts.
 UPDATE users u
 SET
     first_name = COALESCE(u.first_name, ta.first_name),

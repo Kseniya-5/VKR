@@ -230,3 +230,67 @@ def confirm_delete_photos_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+def fashion_action_menu_keyboard(mode: str, total_photos: int) -> InlineKeyboardMarkup:
+    """Menu for recommendations/outfit sections. mode is 'rec' or 'outfit'."""
+    buttons: list[list[InlineKeyboardButton]] = []
+
+    if total_photos > 0:
+        pages = (total_photos + 9) // 10
+        pages = max(1, min(pages, 10))
+        for page in range(1, pages + 1):
+            start = (page - 1) * 10 + 1
+            end = min(page * 10, total_photos)
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"📷 Выбрать фото {start}–{end}",
+                    callback_data=f"fa_page:{mode}:{page}",
+                )
+            ])
+        if total_photos > 10:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="📷 Последние 10",
+                    callback_data=f"fa_latest:{mode}",
+                )
+            ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(text="📸 Загрузить фото", callback_data="upload_photo")
+        ])
+
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def choose_photo_for_action_keyboard(mode: str, photo_id: str) -> InlineKeyboardMarkup:
+    text = "🧥 Выбрать это фото для образа" if mode == "outfit" else "👗 Выбрать это фото для рекомендаций"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=text, callback_data=f"fs:{mode}:{photo_id}")],
+        ]
+    )
+
+
+def choose_model_keyboard(mode: str, photo_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🌲 RandomForest — быстрее", callback_data=f"fa:{mode}:rf:{photo_id}")],
+            [InlineKeyboardButton(text="🧠 ResNet — глубже, но дольше", callback_data=f"fa:{mode}:resnet:{photo_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад к выбору фото", callback_data=f"fa_back:{mode}")],
+        ]
+    )
+
+
+def fashion_action_result_keyboard(mode: str) -> InlineKeyboardMarkup:
+    if mode == "outfit":
+        again_text = "🧥 Собрать другой образ"
+    else:
+        again_text = "👗 Получить ещё рекомендации"
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=again_text, callback_data=f"fa_new:{mode}")],
+            [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="back_to_main")],
+        ]
+    )

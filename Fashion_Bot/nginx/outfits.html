@@ -1,9 +1,3 @@
-<!-- 
-  Файл: outfits.html
-  Описание: Страница создания готовых образов (заготовка для будущего функционала)
-  Разработано с помощью: Perplexity AI (модель Claude Sonnet 4.5)
-  Шаблон: AdminLTE 3 (https://adminlte.io)
--->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -14,79 +8,57 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+
+  <style>
+    .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 16px; }
+    .photo-card { border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.10); cursor: pointer; border: 3px solid transparent; transition: .15s; }
+    .photo-card:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0,0,0,.18); }
+    .photo-card.selected { border-color: #007bff; }
+    .photo-card img { width: 100%; height: 210px; object-fit: cover; display: block; }
+    .photo-card .photo-caption { padding: 8px 10px; font-size: 13px; color: #6c757d; }
+    .model-choice { display: flex; gap: 10px; flex-wrap: wrap; }
+    .model-choice label { border: 1px solid #d2d6de; border-radius: 10px; padding: 10px 14px; cursor: pointer; background: #fff; }
+    .model-choice input { margin-right: 6px; }
+    .result-card { border-left: 4px solid #6c757d; }
+    .result-card.success { border-left-color: #28a745; }
+    .result-card.failure { border-left-color: #dc3545; }
+    .result-photo { width: 100%; max-height: 260px; object-fit: cover; border-radius: 8px; background: #f4f6f9; }
+    .result-text { white-space: normal; line-height: 1.45; }
+    .empty-state { border: 2px dashed #d2d6de; border-radius: 12px; padding: 34px 20px; color: #6c757d; background: #fafafa; }
+  </style>
 </head>
 <body class="hold-transition sidebar-mini">
 <div class="wrapper">
 
-  <!-- Navbar -->
   <nav class="main-header navbar navbar-expand navbar-white navbar-light">
     <ul class="navbar-nav">
-      <li class="nav-item">
-        <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
-      </li>
+      <li class="nav-item"><a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a></li>
     </ul>
     <ul class="navbar-nav ml-auto">
-      <li class="nav-item">
-        <a class="nav-link" href="#" onclick="logout()">
-          <i class="fas fa-sign-out-alt"></i> Выход
-        </a>
-      </li>
+      <li class="nav-item"><a class="nav-link" href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Выход</a></li>
     </ul>
   </nav>
 
-  <!-- Sidebar -->
   <aside class="main-sidebar sidebar-dark-primary elevation-4">
     <a href="/dashboard" class="brand-link">
       <i class="fas fa-tshirt brand-image"></i>
       <span class="brand-text font-weight-light">Fashion Bot</span>
     </a>
-
     <div class="sidebar">
       <nav class="mt-2">
         <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
-          <li class="nav-item">
-            <a href="/dashboard" class="nav-link">
-              <i class="nav-icon fas fa-tachometer-alt"></i>
-              <p>Панель управления</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/photos" class="nav-link">
-              <i class="nav-icon fas fa-images"></i>
-              <p>Мои фото</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/profile" class="nav-link">
-              <i class="nav-icon fas fa-user"></i>
-              <p>Профиль</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/settings" class="nav-link">
-              <i class="nav-icon fas fa-cog"></i>
-              <p>Настройки</p>
-            </a>
-          </li>
-          <li class="nav-header">ФУНКЦИИ (скоро)</li>
-          <li class="nav-item">
-            <a href="/recommendations" class="nav-link">
-              <i class="nav-icon fas fa-lightbulb"></i>
-              <p>Рекомендации</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/outfits" class="nav-link active">
-              <i class="nav-icon fas fa-vest"></i>
-              <p>Собрать образ</p>
-            </a>
-          </li>
+          <li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon fas fa-tachometer-alt"></i><p>Панель управления</p></a></li>
+          <li class="nav-item"><a href="/photos" class="nav-link"><i class="nav-icon fas fa-images"></i><p>Мои фото</p></a></li>
+          <li class="nav-item"><a href="/profile" class="nav-link"><i class="nav-icon fas fa-user"></i><p>Профиль</p></a></li>
+          <li class="nav-item"><a href="/settings" class="nav-link"><i class="nav-icon fas fa-cog"></i><p>Настройки</p></a></li>
+          <li class="nav-header">ФУНКЦИИ</li>
+          <li class="nav-item"><a href="/recommendations" class="nav-link"><i class="nav-icon fas fa-lightbulb"></i><p>Рекомендации</p></a></li>
+          <li class="nav-item"><a href="/outfits" class="nav-link active"><i class="nav-icon fas fa-vest"></i><p>Собрать образ</p></a></li>
         </ul>
       </nav>
     </div>
   </aside>
 
-  <!-- Content Wrapper -->
   <div class="content-wrapper">
     <div class="content-header">
       <div class="container-fluid">
@@ -96,73 +68,48 @@
 
     <section class="content">
       <div class="container-fluid">
-        
-        <!-- Заглушка -->
-        <div class="row justify-content-center">
-          <div class="col-md-8">
-            <div class="card card-success card-outline">
-              <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-construction mr-2"></i>Функция в разработке</h3>
+        <div class="card card-success card-outline">
+          <div class="card-header">
+            <h3 class="card-title"><i class="fas fa-vest mr-2"></i>Собрать образ</h3>
+          </div>
+          <div class="card-body">
+            <p class="lead mb-3">Выберите фото вещи или образа, и бот предложит конкретные варианты комплекта.</p>
+            <div class="row">
+              <div class="col-lg-8">
+                <h5 class="mb-3">1. Выберите фото</h5>
+                <div id="photos-container">
+                  <div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Загрузка фото...</p></div>
+                </div>
               </div>
-              <div class="card-body text-center py-5">
-                <i class="fas fa-user-tie fa-5x text-success mb-4"></i>
-                <h3>Создание готовых образов — скоро!</h3>
-                <p class="lead text-muted mt-3">
-                  Искусственный интеллект будет автоматически подбирать комплекты из вашего гардероба
-                </p>
-                <div class="row mt-4">
-                  <div class="col-md-3">
-                    <i class="fas fa-briefcase fa-3x text-primary mb-3"></i>
-                    <h5>Для работы</h5>
-                    <p class="text-muted small">Деловой стиль</p>
-                  </div>
-                  <div class="col-md-3">
-                    <i class="fas fa-glass-cheers fa-3x text-warning mb-3"></i>
-                    <h5>Для вечера</h5>
-                    <p class="text-muted small">Вечерние образы</p>
-                  </div>
-                  <div class="col-md-3">
-                    <i class="fas fa-running fa-3x text-info mb-3"></i>
-                    <h5>Спорт/Casual</h5>
-                    <p class="text-muted small">Повседневный стиль</p>
-                  </div>
-                  <div class="col-md-3">
-                    <i class="fas fa-sun fa-3x text-danger mb-3"></i>
-                    <h5>По сезону</h5>
-                    <p class="text-muted small">Учёт погоды</p>
-                  </div>
+              <div class="col-lg-4">
+                <h5 class="mb-3">2. Выберите модель</h5>
+                <div class="model-choice mb-3">
+                  <label><input type="radio" name="model-type" value="RandomForest" checked> RandomForest</label>
+                  <label><input type="radio" name="model-type" value="ResNet"> ResNet</label>
                 </div>
-
-                <hr class="my-4">
-
-                <div class="callout callout-success">
-                  <h5><i class="fas fa-cogs mr-2"></i>Как это будет работать:</h5>
-                  <p class="mb-2">1. Выберите повод (работа, вечеринка, прогулка и т.д.)</p>
-                  <p class="mb-2">2. Укажите погоду и сезон</p>
-                  <p class="mb-0">3. Получите готовые комплекты из вашего гардероба</p>
-                </div>
-
-                <div class="alert alert-info mt-3">
-                  <i class="fas fa-info-circle mr-2"></i>
-                  <strong>Для активации функции:</strong><br>
-                  Загрузите минимум 15 фото разных вещей в раздел <a href="/photos" class="alert-link">«Мои фото»</a>
-                </div>
-
-                <a href="/photos" class="btn btn-success btn-lg mt-3">
-                  <i class="fas fa-upload mr-2"></i>Загрузить фото
-                </a>
+                <button class="btn btn-success btn-lg btn-block" id="start-btn" disabled onclick="startAnalysis()">
+                  <i class="fas fa-play mr-2"></i>Собрать образ
+                </button>
+                <div id="task-status" class="mt-3"></div>
               </div>
             </div>
           </div>
         </div>
 
+        <div class="card">
+          <div class="card-header d-flex align-items-center">
+            <h3 class="card-title"><i class="fas fa-history mr-2"></i>История собранных образов</h3>
+            <button class="btn btn-sm btn-outline-secondary ml-auto" onclick="loadHistory()"><i class="fas fa-sync-alt mr-1"></i>Обновить</button>
+          </div>
+          <div class="card-body" id="history-container">
+            <div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Загрузка истории...</p></div>
+          </div>
+        </div>
       </div>
     </section>
   </div>
 
-  <footer class="main-footer">
-    <strong>Fashion Bot &copy; 2026</strong> | Разработано с помощью Perplexity AI
-  </footer>
+  <footer class="main-footer"><strong>Fashion Bot &copy; 2026</strong></footer>
 </div>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -170,16 +117,226 @@
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
 
 <script>
+  const API_BASE_URL = `${window.location.origin}/api`;
+  const MODE = 'outfit';
+  const START_STATUS_TEXT = 'Собираю образ...';
   const token = localStorage.getItem('access_token');
-  if (!token) {
-    window.location.href = '/';
-  }
+  let loadedPhotos = [];
+  let selectedPhotoId = null;
+  const objectUrls = [];
+
+  if (!token) window.location.href = '/';
 
   function logout() {
     localStorage.removeItem('access_token');
     window.location.href = '/';
   }
-</script>
 
+  function authHeaders(extra = {}) {
+    return { ...extra, 'Authorization': `Bearer ${token}` };
+  }
+
+  async function apiFetch(path, options = {}) {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: authHeaders(options.headers || {}),
+    });
+    if (response.status === 401) logout();
+    return response;
+  }
+
+  function revokeObjectUrls() {
+    for (const url of objectUrls) URL.revokeObjectURL(url);
+    objectUrls.length = 0;
+  }
+
+  async function loadProtectedPhotoUrl(photoId) {
+    const response = await apiFetch(`/photos/${photoId}/file`);
+    if (!response.ok) throw new Error(`Photo ${photoId} returned ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    objectUrls.push(objectUrl);
+    return objectUrl;
+  }
+
+  async function loadPhotos() {
+    const container = document.getElementById('photos-container');
+    container.innerHTML = `<div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Загрузка фото...</p></div>`;
+    revokeObjectUrls();
+    loadedPhotos = [];
+
+    try {
+      const response = await apiFetch('/photos/?page=1&page_size=100');
+      if (!response.ok) throw new Error(`GET /photos failed: ${response.status}`);
+      const data = await response.json();
+      const items = data.items || [];
+      if (!items.length) {
+        container.innerHTML = `<div class="empty-state text-center"><i class="fas fa-images fa-3x mb-3"></i><h5>Фото пока нет</h5><p class="mb-0">Загрузите фото в разделе «Мои фото».</p></div>`;
+        return;
+      }
+
+      container.innerHTML = '<div class="photo-grid" id="photo-grid"></div>';
+      const grid = document.getElementById('photo-grid');
+      const preselected = new URLSearchParams(window.location.search).get('photo_id');
+
+      for (const item of items) {
+        let imgSrc = 'https://via.placeholder.com/220x250?text=No+Image';
+        try { imgSrc = await loadProtectedPhotoUrl(item.id); } catch (err) { console.error(err); }
+        const photo = { ...item, blob_url: imgSrc };
+        loadedPhotos.push(photo);
+
+        const card = document.createElement('div');
+        card.className = 'photo-card';
+        card.dataset.photoId = item.id;
+        card.innerHTML = `<img src="${imgSrc}" alt="Фото"><div class="photo-caption">Нажмите, чтобы выбрать</div>`;
+        card.addEventListener('click', () => selectPhoto(item.id));
+        grid.appendChild(card);
+
+        if (preselected && preselected === item.id) selectPhoto(item.id);
+      }
+    } catch (err) {
+      console.error(err);
+      container.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Не удалось загрузить фото: ${escapeHtml(err.message || String(err))}</div>`;
+    }
+  }
+
+  function selectPhoto(photoId) {
+    selectedPhotoId = photoId;
+    document.querySelectorAll('.photo-card').forEach(card => card.classList.toggle('selected', card.dataset.photoId === photoId));
+    document.getElementById('start-btn').disabled = !selectedPhotoId;
+  }
+
+  function selectedModel() {
+    return document.querySelector('input[name="model-type"]:checked').value;
+  }
+
+  async function startAnalysis() {
+    if (!selectedPhotoId) return;
+    const statusEl = document.getElementById('task-status');
+    const startBtn = document.getElementById('start-btn');
+    startBtn.disabled = true;
+    statusEl.innerHTML = `<div class="alert alert-info"><i class="fas fa-spinner fa-spin mr-2"></i>${START_STATUS_TEXT}</div>`;
+
+    try {
+      const response = await apiFetch('/fashion/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_id: selectedPhotoId, mode: MODE, model_type: selectedModel() }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || `Ошибка ${response.status}`);
+      pollTask(payload.task_id);
+    } catch (err) {
+      console.error(err);
+      statusEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times mr-2"></i>${escapeHtml(err.message || String(err))}</div>`;
+      startBtn.disabled = false;
+    }
+  }
+
+  async function pollTask(taskId) {
+    const statusEl = document.getElementById('task-status');
+    for (let i = 0; i < 90; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      try {
+        const response = await apiFetch(`/fashion/tasks/${taskId}`);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || `Ошибка ${response.status}`);
+        if (payload.status === 'SUCCESS' || payload.status === 'FAILURE') {
+          const result = payload.result || {};
+          const cls = payload.status === 'SUCCESS' ? 'success' : 'danger';
+          const text = result.text || result.message || 'Готово';
+          statusEl.innerHTML = `<div class="alert alert-${cls}"><b>${payload.status === 'SUCCESS' ? 'Готово' : 'Ошибка'}</b><div class="mt-2">${formatResultText(text)}</div></div>`;
+          loadHistory();
+          document.getElementById('start-btn').disabled = !selectedPhotoId;
+          return;
+        }
+        statusEl.innerHTML = `<div class="alert alert-info"><i class="fas fa-spinner fa-spin mr-2"></i>Статус: ${escapeHtml(payload.status)}</div>`;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    statusEl.innerHTML = `<div class="alert alert-warning">Задача ещё выполняется. Обновите историю через несколько секунд.</div>`;
+    document.getElementById('start-btn').disabled = !selectedPhotoId;
+  }
+
+  async function loadHistory() {
+    const container = document.getElementById('history-container');
+    container.innerHTML = `<div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Загрузка истории...</p></div>`;
+
+    try {
+      const response = await apiFetch(`/fashion/history?mode=${MODE}&limit=30`);
+      if (!response.ok) throw new Error(`GET /fashion/history failed: ${response.status}`);
+      const data = await response.json();
+      const items = data.items || [];
+      if (!items.length) {
+        container.innerHTML = `<div class="empty-state text-center"><i class="fas fa-history fa-3x mb-3"></i><h5>История пока пустая</h5><p class="mb-0">Выберите фото и запустите анализ.</p></div>`;
+        return;
+      }
+
+      container.innerHTML = '';
+      for (const item of items) {
+        const result = item.result || {};
+        let imgSrc = '';
+        if (result.photo_id) {
+          try { imgSrc = await loadProtectedPhotoUrl(result.photo_id); } catch (_) {}
+        }
+        const card = document.createElement('div');
+        card.className = `card result-card ${item.status === 'SUCCESS' ? 'success' : (item.status === 'FAILURE' ? 'failure' : '')}`;
+        card.innerHTML = `
+          <div class="card-body">
+            <div class="row">
+              <div class="col-md-3 mb-3 mb-md-0">
+                ${imgSrc ? `<img class="result-photo" src="${imgSrc}" alt="Фото">` : `<div class="result-photo d-flex align-items-center justify-content-center text-muted">Нет фото</div>`}
+              </div>
+              <div class="col-md-9">
+                <div class="d-flex flex-wrap align-items-center mb-2">
+                  <span class="badge badge-${item.status === 'SUCCESS' ? 'success' : (item.status === 'FAILURE' ? 'danger' : 'secondary')} mr-2">${escapeHtml(item.status)}</span>
+                  <span class="text-muted small mr-2">${formatDate(item.created_at)}</span>
+                  <span class="text-muted small">${escapeHtml(result.model_type || '')}</span>
+                </div>
+                <div class="result-text">${formatResultText(result.text || result.message || '')}</div>
+                <div class="small text-muted mt-2">
+                  ${result.source ? `Источник: ${escapeHtml(result.source)}` : ''}
+                  ${result.advisor && result.advisor.vision_used ? ` · Vision: ${escapeHtml(result.advisor.vision_model || '')}` : ''}
+                </div>
+              </div>
+            </div>
+          </div>`;
+        container.appendChild(card);
+      }
+    } catch (err) {
+      console.error(err);
+      container.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-2"></i>Не удалось загрузить историю: ${escapeHtml(err.message || String(err))}</div>`;
+    }
+  }
+
+  function formatDate(value) {
+    if (!value) return '';
+    try { return new Date(value).toLocaleString('ru-RU'); } catch (_) { return value; }
+  }
+
+  function formatResultText(value) {
+    let html = escapeHtml(value || '').replaceAll('\n', '<br>');
+    html = html
+      .replaceAll('&lt;b&gt;', '<b>')
+      .replaceAll('&lt;/b&gt;', '</b>')
+      .replaceAll('&lt;strong&gt;', '<strong>')
+      .replaceAll('&lt;/strong&gt;', '</strong>');
+    return html;
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  window.addEventListener('beforeunload', revokeObjectUrls);
+  loadPhotos();
+  loadHistory();
+</script>
 </body>
 </html>

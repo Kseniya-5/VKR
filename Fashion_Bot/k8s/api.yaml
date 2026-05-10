@@ -15,7 +15,7 @@ spec:
       containers:
         - name: fashion-api
           image: fashion-bot:v2
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
           ports:
             - containerPort: 8000
@@ -27,8 +27,6 @@ spec:
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
-            - name: PUBLIC_BASE_URL
-              value: "http://127.0.0.1"
           resources:
             requests:
               cpu: "200m"

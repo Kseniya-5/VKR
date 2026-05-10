@@ -1,13 +1,15 @@
--- 1. Главная таблица пользователей (Добавлено мягкое удаление)
+-- 1. Главная таблица пользователей
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    first_name VARCHAR(255),
+    last_name VARCHAR(255),
     is_deleted BOOLEAN DEFAULT FALSE, -- Мягкое удаление
     deleted_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Telegram-аккаунты (Шаг A)
+-- 2. Telegram-аккаунты 
 CREATE TABLE IF NOT EXISTS telegram_accounts (
     telegram_id BIGINT PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -18,7 +20,7 @@ CREATE TABLE IF NOT EXISTS telegram_accounts (
     UNIQUE(user_id) -- У одного пользователя может быть только один привязанный TG
 );
 
--- 3. Web-аккаунты (Добавлена блокировка после неудачных попыток)
+-- 3. Web-аккаунты
 CREATE TABLE IF NOT EXISTS web_accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -31,7 +33,7 @@ CREATE TABLE IF NOT EXISTS web_accounts (
     )
 );
 
--- 4. Одноразовые коды для связывания (Шаг A и Шаг B)
+-- 4. Одноразовые коды для связывания 
 CREATE TABLE IF NOT EXISTS account_link_codes (
     code VARCHAR(10) PRIMARY KEY, 
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -185,10 +187,37 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     token_hash VARCHAR(255) NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     used_at TIMESTAMP WITH TIME ZONE,
+    telegram_chat_id BIGINT,
+    telegram_message_id INTEGER,
+    telegram_message_deleted_at TIMESTAMPTZ,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_telegram_message
+    ON password_reset_tokens (telegram_chat_id, telegram_message_id);
 CREATE INDEX IF NOT EXISTS idx_recommendations_user_id ON recommendations(user_id);
 CREATE INDEX IF NOT EXISTS idx_recommendations_type ON recommendations(recommendation_type);
 CREATE INDEX IF NOT EXISTS idx_recommendations_outfit_id ON recommendations(outfit_id);
+
+
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS first_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS last_name VARCHAR(255);
+
+UPDATE users u
+SET
+    first_name = COALESCE(u.first_name, ta.first_name),
+    last_name = COALESCE(u.last_name, ta.last_name),
+    updated_at = CURRENT_TIMESTAMP
+FROM telegram_accounts ta
+WHERE ta.user_id = u.id
+  AND (u.first_name IS NULL OR u.last_name IS NULL);
+
+ALTER TABLE password_reset_tokens
+    ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT,
+    ADD COLUMN IF NOT EXISTS telegram_message_id INTEGER,
+    ADD COLUMN IF NOT EXISTS telegram_message_deleted_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_telegram_message
+    ON password_reset_tokens (telegram_chat_id, telegram_message_id);

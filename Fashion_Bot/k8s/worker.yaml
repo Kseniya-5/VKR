@@ -14,8 +14,8 @@ spec:
     spec:
       containers:
         - name: worker
-          image: fashion-bot:latest
-          imagePullPolicy: IfNotPresent
+          image: fashion-bot:v2
+          imagePullPolicy: Never
           command: ["celery", "-A", "app.worker.celery_app.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
           envFrom:
             - configMapRef:
@@ -30,5 +30,12 @@ spec:
               memory: "1Gi"
               cpu: "500m"
             limits:
-              memory: "4Gi" # После добавлении модели можно увеличить до 8
+              memory: "6Gi"
               cpu: "2"
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-pvc

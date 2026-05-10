@@ -5,9 +5,14 @@ metadata:
 data:
   DATABASE_URL: "postgresql+asyncpg://fashion_user:fashion_password@postgres-service:5432/fashion_db"
   API_BASE_URL: "http://fashion-api-service:8000"
-  PUBLIC_BASE_URL: "https://frontpage-facilities-basename-holdem.trycloudflare.com"
+  PUBLIC_BASE_URL: "https://app.fashion-bot.win"
   JWT_ALGORITHM: "HS256"
-  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
+  MEDIA_ROOT: "/app/media"
+  ML_MODELS_ROOT: "/app/ml_models"
+  ML_PREDICTION_THRESHOLD: "0.5"
+  ML_CANDIDATE_PHOTO_LIMIT: "30"
+  ML_AUTO_TAG_CANDIDATES_LIMIT: "8"
 
 ---
 apiVersion: v1

@@ -68,7 +68,7 @@
               <p>Настройки</p>
             </a>
           </li>
-          <li class="nav-header">ФУНКЦИИ (скоро)</li>
+          <li class="nav-header">ФУНКЦИИ</li>
           <li class="nav-item">
             <a href="/recommendations" class="nav-link">
               <i class="nav-icon fas fa-lightbulb"></i>
@@ -202,24 +202,45 @@
   }
 
   // Загрузка статистики
+  async function apiGet(path) {
+    const resp = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (resp.status === 401) {
+      logout();
+      return null;
+    }
+
+    if (!resp.ok) {
+      throw new Error(`${path}: ${resp.status}`);
+    }
+
+    return await resp.json();
+  }
+
+  async function loadFashionCount(mode) {
+    try {
+      const data = await apiGet(`/fashion/history?mode=${mode}&limit=100`);
+      if (!data) return 0;
+      if (typeof data.total === 'number') return data.total;
+      if (typeof data.count === 'number') return data.count;
+      const items = Array.isArray(data.items) ? data.items : [];
+      return items.filter(item => {
+        const result = item.result || {};
+        return item.status === 'SUCCESS' && result.ok !== false;
+      }).length;
+    } catch (err) {
+      console.warn(`Не удалось загрузить историю ${mode}:`, err);
+      return 0;
+    }
+  }
+
   async function loadDashboardData() {
     try {
-      // Загружаем профиль
-      const profileResp = await fetch(`${API_BASE_URL}/users/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const profile = await apiGet('/users/me');
+      if (!profile) return;
 
-      if (!profileResp.ok) {
-        if (profileResp.status === 401) {
-          logout();
-          return;
-        }
-        throw new Error('Failed to load profile');
-      }
-
-      const profile = await profileResp.json();
-      
-      // Обновляем статус аккаунта
       let statusText = 'Активен';
       if (profile.has_telegram && profile.has_web_account) {
         statusText = 'Полный';
@@ -230,16 +251,30 @@
       }
       document.getElementById('account-status').textContent = statusText;
 
-      // Загружаем количество фото
-      const photosResp = await fetch(`${API_BASE_URL}/photos/?page=1&page_size=1`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (photosResp.ok) {
-        const photosData = await photosResp.json();
-        document.getElementById('total-photos').textContent = photosData.total || 0;
+      try {
+        const photosData = await apiGet('/photos/?page=1&page_size=1');
+        document.getElementById('total-photos').textContent = photosData?.total || 0;
+      } catch (err) {
+        console.warn('Не удалось загрузить количество фото:', err);
       }
 
+      try {
+        const stats = await apiGet('/fashion/stats');
+        if (stats) {
+          document.getElementById('total-recommendations').textContent = stats.recommendations || 0;
+          document.getElementById('total-outfits').textContent = stats.outfits || 0;
+          return;
+        }
+      } catch (err) {
+        console.warn('Не удалось загрузить /fashion/stats, использую history fallback:', err);
+      }
+
+      const [recommendationsCount, outfitsCount] = await Promise.all([
+        loadFashionCount('recommendation'),
+        loadFashionCount('outfit'),
+      ]);
+      document.getElementById('total-recommendations').textContent = recommendationsCount;
+      document.getElementById('total-outfits').textContent = outfitsCount;
     } catch (err) {
       console.error('Error loading dashboard:', err);
     }

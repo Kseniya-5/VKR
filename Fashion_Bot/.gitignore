@@ -17,3 +17,6 @@ k8s/secret.yaml
 *.db-port-forward.pid
 *.api-port-forward.pid
 *.deb
+*.log
+*.pid
+k8s/cloudflared.yaml

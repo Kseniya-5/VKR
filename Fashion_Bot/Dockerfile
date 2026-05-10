@@ -16,6 +16,8 @@ COPY migrations ./migrations
 
 ENV UV_HTTP_TIMEOUT=600
 
+ENV UV_TORCH_BACKEND=cpu
+
 RUN uv venv /opt/venv && \
     uv pip install --python /opt/venv/bin/python --no-cache-dir .
 
@@ -32,6 +34,7 @@ RUN useradd --create-home --uid 1000 appuser
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=appuser:appuser app ./app
 COPY --chown=appuser:appuser migrations ./migrations
+COPY --chown=appuser:appuser ml_models ./ml_models
 COPY --chown=appuser:appuser pyproject.toml uv.lock README.md ./
 
 USER appuser

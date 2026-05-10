@@ -13,12 +13,22 @@ spec:
         app: telegram-bot
     spec:
       containers:
-      - name: telegram-bot
-        image: fashion-bot:v2     
-        imagePullPolicy: Never        
-        command: ["python", "-m", "app.bot.main"]
-        envFrom:
-        - configMapRef:
-            name: fashion-config
-        - secretRef:
-            name: fashion-secrets
+        - name: telegram-bot
+          image: fashion-bot:v2
+          imagePullPolicy: Never
+          command: ["python", "-m", "app.bot.main"]
+          envFrom:
+            - configMapRef:
+                name: fashion-config
+            - secretRef:
+                name: fashion-secrets
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-pvc

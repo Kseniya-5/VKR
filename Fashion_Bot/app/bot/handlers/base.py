@@ -13,6 +13,8 @@ import asyncio
 import logging
 import json
 import re
+from uuid import uuid4
+from pathlib import Path
 
 
 from app.core.config import settings
@@ -29,6 +31,10 @@ from app.bot.keyboards import (
     confirm_unlink_telegram_keyboard,
     confirm_delete_account_keyboard,
     back_to_link_web_keyboard,
+    fashion_action_menu_keyboard,
+    choose_photo_for_action_keyboard,
+    choose_model_keyboard,
+    fashion_action_result_keyboard,
 )
 
 
@@ -52,6 +58,7 @@ SessionLocal = async_sessionmaker(
 logger = logging.getLogger(__name__)
 API_BASE_URL = settings.api_base_url.rstrip("/")
 WEB_BASE_URL = settings.public_base_url.rstrip("/")
+MEDIA_ROOT = Path(getattr(settings, "media_root", "/app/media"))
 
 
 async def is_user_registered(telegram_id: int) -> bool:
@@ -172,7 +179,7 @@ async def show_main_menu(
     else:
         if is_registered:
             text_value = (
-                "👋 <b>С возвращением в Fashion Bot!</b>\n\n"
+                "🏠 <b>Главное меню Fashion Bot!</b>\n\n"
                 "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
                 "Выберите нужное действие ниже."
             )
@@ -221,6 +228,16 @@ async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     photo_message_ids = data.get("photo_message_ids", [])
     menu_message_id = data.get("menu_message_id")
+    selected_fashion_photo_message_id = data.get("selected_fashion_photo_message_id")
+
+    if selected_fashion_photo_message_id:
+        try:
+            await callback.bot.delete_message(
+                chat_id=callback.message.chat.id,
+                message_id=selected_fashion_photo_message_id,
+            )
+        except Exception:
+            pass
 
     for mid in photo_message_ids:
         try:
@@ -244,7 +261,7 @@ async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
 
     if is_registered:
         text_value = (
-            "👋 <b>С возвращением в Fashion Bot!</b>\n\n"
+            "🏠 <b>Главное меню Fashion Bot!</b>\n\n"
             "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
             "Выберите нужное действие ниже."
         )
@@ -1968,6 +1985,120 @@ async def _send_photo_from_url(
         reply_markup=photo_keyboard,
     )
 
+
+async def _get_photo_storage_row(photo_id: str, user_id: str | None = None) -> dict | None:
+    query = """
+        SELECT id, user_id, original_path, telegram_file_id, mime_type, is_active
+        FROM user_photos
+        WHERE id = :photo_id
+        LIMIT 1
+    """
+    params = {"photo_id": photo_id}
+
+    if user_id:
+        query = """
+            SELECT id, user_id, original_path, telegram_file_id, mime_type, is_active
+            FROM user_photos
+            WHERE id = :photo_id
+              AND user_id = :user_id
+            LIMIT 1
+        """
+        params["user_id"] = str(user_id)
+
+    async with SessionLocal() as session:
+        result = await session.execute(sql_text(query), params)
+        row = result.mappings().first()
+
+    if not row or not row["is_active"]:
+        return None
+    return dict(row)
+
+
+async def _send_photo_to_chat_by_photo_id(
+    *,
+    bot,
+    chat_id: int,
+    photo_id: str,
+    access_token: str | None,
+    user_id: str | None = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    caption: str | None = None,
+):
+    row = await _get_photo_storage_row(photo_id, user_id=user_id)
+    if not row:
+        raise RuntimeError(f"Фото не найдено: {photo_id}")
+
+    telegram_file_id = row.get("telegram_file_id")
+    if telegram_file_id:
+        return await bot.send_photo(
+            chat_id=chat_id,
+            photo=telegram_file_id,
+            caption=caption,
+            parse_mode="HTML" if caption else None,
+            reply_markup=reply_markup,
+        )
+
+    original_path = row.get("original_path")
+    if original_path:
+        file_path = MEDIA_ROOT / str(original_path)
+        if file_path.exists():
+            content = file_path.read_bytes()
+            if content:
+                return await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=BufferedInputFile(content, filename=file_path.name),
+                    caption=caption,
+                    parse_mode="HTML" if caption else None,
+                    reply_markup=reply_markup,
+                )
+
+    # Fallback: ask API to return protected file. This helps if the bot pod does not have media mounted yet.
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    url = f"{API_BASE_URL}/photos/{photo_id}/file"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise RuntimeError(
+                    f"Не удалось скачать фото: status={resp.status}, url={url}, body={body[:200]}"
+                )
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            if not content_type.startswith("image/"):
+                raise RuntimeError(f"URL вернул не изображение: content_type={content_type}, url={url}")
+            content = await resp.read()
+
+    return await bot.send_photo(
+        chat_id=chat_id,
+        photo=BufferedInputFile(content, filename=f"{photo_id}.jpg"),
+        caption=caption,
+        parse_mode="HTML" if caption else None,
+        reply_markup=reply_markup,
+    )
+
+
+async def _send_photo_message_by_photo_info(
+    callback: CallbackQuery,
+    info: dict,
+    photo_keyboard: InlineKeyboardMarkup,
+    access_token: str | None,
+):
+    photo_id = str(info["id"])
+    user_id = None
+    telegram_id = callback.from_user.id
+    maybe_user_id = await get_user_id_by_telegram(telegram_id)
+    if maybe_user_id:
+        user_id = str(maybe_user_id)
+
+    return await _send_photo_to_chat_by_photo_id(
+        bot=callback.bot,
+        chat_id=callback.message.chat.id,
+        photo_id=photo_id,
+        access_token=access_token,
+        user_id=user_id,
+        reply_markup=photo_keyboard,
+    )
+
+
 async def _fetch_photos_page(
     access_token: str,
     page: int,
@@ -2211,21 +2342,12 @@ async def view_photos_page_callback(callback: CallbackQuery, state: FSMContext):
         ])
 
         try:
-            if telegram_file_id:
-                msg = await callback.message.answer_photo(
-                    photo=telegram_file_id,
-                    reply_markup=photo_keyboard,
-                )
-            else:
-                url = f"{API_BASE_URL}/photos/{photo_id}/file"
-                msg = await _send_photo_from_url(
-                    callback=callback,
-                    url=url,
-                    photo_keyboard=photo_keyboard,
-                    filename=f"{photo_id}.jpg",
-                    access_token=access_token,
-                )
-
+            msg = await _send_photo_message_by_photo_info(
+                callback=callback,
+                info=info,
+                photo_keyboard=photo_keyboard,
+                access_token=access_token,
+            )
             new_ids.append(msg.message_id)
 
         except Exception as e:
@@ -2363,21 +2485,12 @@ async def view_photos_latest_callback(callback: CallbackQuery, state: FSMContext
         ])
 
         try:
-            if telegram_file_id:
-                msg = await callback.message.answer_photo(
-                    photo=telegram_file_id,
-                    reply_markup=photo_keyboard,
-                )
-            else:
-                url = f"{API_BASE_URL}/photos/{photo_id}/file"
-                msg = await _send_photo_from_url(
-                    callback=callback,
-                    url=url,
-                    photo_keyboard=photo_keyboard,
-                    filename=f"{photo_id}.jpg",
-                    access_token=access_token,
-                )
-
+            msg = await _send_photo_message_by_photo_info(
+                callback=callback,
+                info=info,
+                photo_keyboard=photo_keyboard,
+                access_token=access_token,
+            )
             new_ids.append(msg.message_id)
 
         except Exception as e:
@@ -2764,9 +2877,157 @@ async def cancel_delete_all_photos_callback(callback: CallbackQuery, state: FSMC
 # Рекомендации, сбор образа
 # ============================================================
 
-@router.callback_query(F.data == "get_recommendations")
-async def get_recommendations_callback(callback: CallbackQuery, state: FSMContext):
-    if not await is_user_registered(callback.from_user.id):
+
+def _fashion_mode_title(mode: str) -> str:
+    return "🧥 Собрать образ" if mode == "outfit" else "👗 Рекомендации по одежде"
+
+
+def _fashion_mode_intro(mode: str, total: int) -> str:
+    if mode == "outfit":
+        return (
+            "🧥 <b>Собрать образ</b>\n\n"
+            "Выберите фото вещи или готового образа.\n"
+            "Я предложу конкретный комплект: что добавить, какую обувь и аксессуар выбрать.\n\n"
+            f"В гардеробе сейчас <b>{total}</b> фото."
+        )
+
+    return (
+        "👗 <b>Получить рекомендации</b>\n\n"
+        "Выберите фото, и я подскажу, как улучшить образ: "
+        "цветовой акцент, обувь, сумку, слой или аксессуар.\n\n"
+        f"В гардеробе сейчас <b>{total}</b> фото."
+    )
+
+
+def _mode_to_task_mode(mode: str) -> str:
+    return "outfit" if mode == "outfit" else "recommendation"
+
+
+def _model_label(model_code: str) -> str:
+    return "ResNet" if model_code == "resnet" else "RandomForest"
+
+
+def _fashion_processing_text(mode: str, model_type: str) -> str:
+    if mode == "outfit":
+        return (
+            "🧥 <b>Сбор образа</b>\n\n"
+            f"⏳ Собираю образ через <b>{model_type}</b>.\n"
+            "Это может занять несколько секунд.\n\n"
+            "Вы можете выйти из раздела — я пришлю готовый образ, когда он будет готов."
+        )
+
+    return (
+        "👗 <b>Рекомендации по одежде</b>\n\n"
+        f"⏳ Анализирую фото через <b>{model_type}</b>.\n"
+        "Это может занять несколько секунд.\n\n"
+        "Вы можете выйти из раздела — я пришлю готовые рекомендации, когда они будут готовы."
+    )
+
+def _main_menu_text(notice: str | None = None) -> str:
+    if notice:
+        return (
+            "🏠 <b>Главное меню Fashion Bot!</b>\n\n"
+            f"{notice.strip()}\n\n"
+            "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
+            "Выберите нужное действие ниже."
+        )
+
+    return (
+        "🏠 <b>Главное меню Fashion Bot!</b>\n\n"
+        "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
+        "Выберите нужное действие ниже."
+    )
+
+
+def _fashion_done_menu_text(mode: str) -> str:
+    return (
+        "🏠 <b>Главное меню Fashion Bot!</b>\n\n"
+        "Результат можно увидеть выше и в истории веб-версии.\n\n"
+        "Выберите нужное действие ниже."
+    )
+
+
+def _fashion_failed_menu_text(mode: str, error_text: str | None = None) -> str:
+    if error_text:
+        cleaned = str(error_text).strip()
+        notice = f"😔 {cleaned}"
+    else:
+        action = "собрать образ" if mode == "outfit" else "подготовить рекомендацию"
+        notice = f"😔 Не удалось {action}."
+
+    return (
+        "🏠 <b>Главное меню Fashion Bot!</b>\n\n"
+        f"{notice}\n\n"
+        "Я помогаю управлять <b>персональным гардеробом и стилем</b>.\n"
+        "Выберите нужное действие ниже."
+    )
+
+
+async def _get_model_task_result(task_id: str) -> dict | None:
+    async with SessionLocal() as session:
+        result = await session.execute(
+            sql_text(
+                """
+                SELECT status, result
+                FROM model_tasks
+                WHERE task_id = :task_id
+                LIMIT 1
+                """
+            ),
+            {"task_id": task_id},
+        )
+        row = result.mappings().first()
+
+    if not row:
+        return None
+
+    payload = None
+    if row["result"]:
+        try:
+            payload = json.loads(row["result"])
+        except Exception:
+            payload = {"text": str(row["result"])}
+
+    return {"status": row["status"], "result": payload}
+
+
+async def _create_model_task(user_id: str, photo_id: str, mode: str, model_type: str) -> str:
+    task_id = str(uuid4())
+    initial_result = {
+        "mode": mode,
+        "model_type": model_type,
+        "photo_id": photo_id,
+        "message": "Задача поставлена в очередь",
+    }
+    async with SessionLocal() as session:
+        await session.execute(
+            sql_text(
+                """
+                INSERT INTO model_tasks (task_id, user_id, status, result)
+                VALUES (:task_id, :user_id, :status, :result)
+                """
+            ),
+            {
+                "task_id": task_id,
+                "user_id": user_id,
+                "status": "PENDING",
+                "result": json.dumps(initial_result, ensure_ascii=False),
+            },
+        )
+        await session.commit()
+    return task_id
+
+
+async def _open_fashion_action_menu(
+    callback: CallbackQuery,
+    state: FSMContext,
+    mode: str,
+    *,
+    send_new: bool = False,
+):
+    telegram_id = callback.from_user.id
+
+    if not await is_user_registered(telegram_id):
         text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
         await callback.message.edit_text(
             text,
@@ -2780,60 +3041,409 @@ async def get_recommendations_callback(callback: CallbackQuery, state: FSMContex
         await callback.answer()
         return
 
-    text = (
-        "👗 <b>Рекомендации по одежде</b>\n\n"
-        "Здесь будут рекомендации на основе ваших вещей, фото и предпочтений.\n"
-        "Сейчас функция находится в разработке."
-    )
+    await state.clear()
+
+    access_token = await _get_access_token_for_telegram(telegram_id)
+    if not access_token:
+        text = "😔 Не удалось получить токен для работы с гардеробом. Попробуйте позже."
+        await callback.message.edit_text(text, reply_markup=back_keyboard())
+        await state.update_data(
+            current_message_id=callback.message.message_id,
+            current_text=text,
+            current_keyboard="back",
+        )
+        await callback.answer()
+        return
+
+    data = await _fetch_photos_page(access_token=access_token, page=1, page_size=1)
+    total = data.get("total", 0)
+    text = _fashion_mode_intro(mode, total)
+
+    keyboard = fashion_action_menu_keyboard(mode, total)
+
+    if send_new:
+        msg = await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        message_id = msg.message_id
+    else:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        message_id = callback.message.message_id
 
     await state.update_data(
-        current_message_id=callback.message.message_id,
+        access_token=access_token,
+        total_photos=total,
+        fashion_mode=mode,
+        current_message_id=message_id,
         current_text=text,
-        current_keyboard="back",
-    )
-
-    await callback.message.edit_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=back_keyboard(),
+        current_keyboard="fashion_action",
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "get_recommendations")
+async def get_recommendations_callback(callback: CallbackQuery, state: FSMContext):
+    await _open_fashion_action_menu(callback, state, "rec")
 
 
 @router.callback_query(F.data == "build_outfit")
 async def build_outfit_callback(callback: CallbackQuery, state: FSMContext):
-    if not await is_user_registered(callback.from_user.id):
+    await _open_fashion_action_menu(callback, state, "outfit")
+
+
+@router.callback_query(F.data.regexp(r"^fa_new:(rec|outfit)$"))
+async def fashion_action_new_callback(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    mode = parts[1] if len(parts) > 1 else "rec"
+    await _open_fashion_action_menu(callback, state, mode, send_new=True)
+
+
+@router.callback_query(F.data.regexp(r"^fa_back:(rec|outfit)$"))
+async def fashion_action_back_to_menu_callback(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected_photo_message_id = data.get("selected_fashion_photo_message_id")
+    if selected_photo_message_id:
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, selected_photo_message_id)
+        except Exception:
+            pass
+    parts = callback.data.split(":")
+    mode = parts[1] if len(parts) > 1 else data.get("fashion_mode", "rec")
+    await _open_fashion_action_menu(callback, state, mode)
+
+
+async def _show_fashion_photos_page(
+    callback: CallbackQuery,
+    state: FSMContext,
+    mode: str,
+    page: int,
+    *,
+    latest: bool = False,
+):
+    telegram_id = callback.from_user.id
+    if not await is_user_registered(telegram_id):
         text = "Сначала нужно зарегистрироваться через кнопку «📝 Зарегистрироваться»."
+        await callback.message.edit_text(text, reply_markup=start_keyboard(is_registered=False))
+        await state.update_data(current_message_id=callback.message.message_id, current_text=text, current_keyboard="start")
+        await callback.answer()
+        return
+
+    data_state = await state.get_data()
+    access_token = data_state.get("access_token")
+    if not access_token:
+        access_token = await _get_access_token_for_telegram(telegram_id)
+        if not access_token:
+            text = "😔 Не удалось получить токен для просмотра фото. Попробуйте позже."
+            await callback.message.edit_text(text, reply_markup=back_keyboard())
+            await state.update_data(current_message_id=callback.message.message_id, current_text=text, current_keyboard="back")
+            await callback.answer()
+            return
+        await state.update_data(access_token=access_token)
+
+    resp = await _fetch_photos_page(access_token=access_token, page=page, page_size=10)
+    items = resp.get("items", [])
+    total = resp.get("total", 0)
+
+    old_ids = data_state.get("photo_message_ids", [])
+    old_menu_id = data_state.get("menu_message_id")
+    await _delete_photo_messages(callback.bot, callback.message.chat.id, old_ids)
+    if old_menu_id:
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, old_menu_id)
+        except Exception:
+            pass
+
+    if not items:
+        text = (
+            f"{_fashion_mode_title(mode)}\n\n"
+            "В выбранном диапазоне нет фото. Загрузите фото или выберите другой диапазон."
+        )
         await callback.message.edit_text(
             text,
-            reply_markup=start_keyboard(is_registered=False),
+            parse_mode="HTML",
+            reply_markup=fashion_action_menu_keyboard(mode, total),
         )
         await state.update_data(
+            photo_message_ids=[],
+            menu_message_id=None,
+            total_photos=total,
+            fashion_mode=mode,
             current_message_id=callback.message.message_id,
             current_text=text,
-            current_keyboard="start",
+            current_keyboard="fashion_action",
         )
         await callback.answer()
         return
 
+    new_ids: list[int] = []
+    for info in items:
+        telegram_file_id = info.get("telegram_file_id")
+        photo_id = info["id"]
+        keyboard = choose_photo_for_action_keyboard(mode, photo_id)
+
+        try:
+            msg = await _send_photo_message_by_photo_info(
+                callback=callback,
+                info=info,
+                photo_keyboard=keyboard,
+                access_token=access_token,
+            )
+            new_ids.append(msg.message_id)
+        except Exception as e:
+            logger.exception("Не удалось отправить фото для %s photo_id=%s: %s", mode, photo_id, e)
+
+    if latest:
+        text = f"{_fashion_mode_title(mode)}\n\nПоказаны последние фото. Выберите одно фото для анализа."
+    else:
+        start = (page - 1) * 10 + 1
+        end = min(page * 10, total)
+        text = f"{_fashion_mode_title(mode)}\n\nПоказаны фото с <b>{start}</b> по <b>{end}</b>. Выберите одно фото для анализа."
+
+    menu_msg = await callback.message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=fashion_action_menu_keyboard(mode, total),
+    )
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await state.update_data(
+        photo_message_ids=new_ids,
+        menu_message_id=menu_msg.message_id,
+        total_photos=total,
+        fashion_mode=mode,
+        current_message_id=menu_msg.message_id,
+        current_text=text,
+        current_keyboard="fashion_action",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^fa_page:(rec|outfit):\d+$"))
+async def fashion_action_page_callback(callback: CallbackQuery, state: FSMContext):
+    _, mode, page_raw = callback.data.split(":", 2)
+    await _show_fashion_photos_page(callback, state, mode, int(page_raw))
+
+
+@router.callback_query(F.data.regexp(r"^fa_latest:(rec|outfit)$"))
+async def fashion_action_latest_callback(callback: CallbackQuery, state: FSMContext):
+    _, mode = callback.data.split(":", 1)
+    await _show_fashion_photos_page(callback, state, mode, 1, latest=True)
+
+
+@router.callback_query(F.data.regexp(r"^fs:(rec|outfit):[a-f0-9\-]+$"))
+async def fashion_select_photo_callback(callback: CallbackQuery, state: FSMContext):
+    _, mode, photo_id = callback.data.split(":", 2)
+    data = await state.get_data()
+    old_ids = data.get("photo_message_ids", [])
+    old_menu_id = data.get("menu_message_id")
+
+    selected_message_id = callback.message.message_id
+    for mid in old_ids:
+        if mid == selected_message_id:
+            continue
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, mid)
+        except Exception:
+            pass
+
+    if old_menu_id:
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, old_menu_id)
+        except Exception:
+            pass
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
     text = (
-        "🧥 <b>Собрать образ</b>\n\n"
-        "Здесь бот будет помогать составлять готовый комплект одежды.\n"
-        "Сейчас функция находится в разработке."
+        f"{_fashion_mode_title(mode)}\n\n"
+        "Фото выбрано. Теперь выберите модель анализа.\n\n"
+        "🌲 <b>RandomForest</b> — быстрее, хорошо подходит для первой проверки.\n"
+        "🧠 <b>ResNet</b> — глубже, но может работать дольше."
+    )
+    model_msg = await callback.message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=choose_model_keyboard(mode, photo_id),
     )
 
     await state.update_data(
-        current_message_id=callback.message.message_id,
+        photo_message_ids=[],
+        menu_message_id=None,
+        selected_fashion_photo_id=photo_id,
+        selected_fashion_photo_message_id=selected_message_id,
+        current_message_id=model_msg.message_id,
         current_text=text,
-        current_keyboard="back",
+        current_keyboard="fashion_model",
+        fashion_mode=mode,
     )
+    await callback.answer()
 
+
+@router.callback_query(F.data.regexp(r"^fa:(rec|outfit):(rf|resnet):[a-f0-9\-]+$"))
+async def fashion_choose_model_callback(callback: CallbackQuery, state: FSMContext):
+    _, mode, model_code, photo_id = callback.data.split(":", 3)
+    telegram_id = callback.from_user.id
+
+    user_id = await get_user_id_by_telegram(telegram_id)
+    if not user_id:
+        await callback.answer("Сначала зарегистрируйтесь", show_alert=True)
+        return
+
+    model_type = _model_label(model_code)
+    task_mode = _mode_to_task_mode(mode)
+    task_id = await _create_model_task(str(user_id), photo_id, task_mode, model_type)
+
+    try:
+        from app.worker.celery_app import celery_app
+        celery_app.send_task(
+            "app.worker.tasks.analyze_fashion_photo_task",
+            args=[task_id, str(user_id), photo_id, task_mode, model_type],
+        )
+    except Exception as e:
+        logger.exception("Не удалось поставить ML-задачу в очередь: %s", e)
+        await callback.message.edit_text(
+            "😔 Не удалось поставить задачу в очередь. Проверьте Redis/Celery worker.",
+            reply_markup=fashion_action_result_keyboard(mode),
+        )
+        await callback.answer()
+        return
+
+    processing_text = _fashion_processing_text(mode, model_type)
     await callback.message.edit_text(
-        text,
+        processing_text,
         parse_mode="HTML",
         reply_markup=back_keyboard(),
     )
-    await callback.answer()
+    await state.update_data(
+        current_message_id=callback.message.message_id,
+        current_text=processing_text,
+        current_keyboard="back",
+        fashion_mode=mode,
+        selected_fashion_photo_id=photo_id,
+    )
+    await callback.answer("Фото принято в работу")
+
+    selected_photo_message_id = (await state.get_data()).get("selected_fashion_photo_message_id")
+    asyncio.create_task(
+        _wait_and_deliver_fashion_result(
+            bot=callback.bot,
+            chat_id=callback.message.chat.id,
+            user_id=str(user_id),
+            task_id=task_id,
+            mode=mode,
+            model_type=model_type,
+            photo_id=photo_id,
+            processing_message_id=callback.message.message_id,
+            selected_photo_message_id=selected_photo_message_id,
+        )
+    )
+
+
+async def _wait_and_deliver_fashion_result(
+    *,
+    bot,
+    chat_id: int,
+    user_id: str,
+    task_id: str,
+    mode: str,
+    model_type: str,
+    photo_id: str,
+    processing_message_id: int | None,
+    selected_photo_message_id: int | None,
+):
+    result_payload = None
+    status = None
+
+    for _ in range(90):  # up to ~3 minutes
+        await asyncio.sleep(2)
+        task_row = await _get_model_task_result(task_id)
+        if not task_row:
+            continue
+        status = task_row.get("status")
+        result_payload = task_row.get("result")
+        if status in {"SUCCESS", "FAILURE"}:
+            break
+
+    is_success = bool(result_payload and result_payload.get("ok") and status == "SUCCESS")
+
+    if is_success:
+        # Успешный сценарий: выбранное фото оставляем в чате,
+        # сообщение "анализирую" перезаписываем на готовый ответ,
+        # ниже отправляем стандартное главное меню.
+        result_text = result_payload.get("text") or "✅ Рекомендация готова."
+
+        edited_result = False
+        if processing_message_id:
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=processing_message_id,
+                    text=result_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+                edited_result = True
+            except Exception as e:
+                logger.warning("Не удалось перезаписать processing_message_id=%s результатом: %s", processing_message_id, e)
+
+        if not edited_result:
+            try:
+                await bot.send_message(chat_id, result_text, parse_mode="HTML")
+            except Exception as e:
+                logger.exception("Не удалось отправить текст результата task_id=%s: %s", task_id, e)
+
+        await bot.send_message(
+            chat_id,
+            _fashion_done_menu_text(mode),
+            parse_mode="HTML",
+            reply_markup=start_keyboard(is_registered=True),
+        )
+        return
+
+    # Ошибка/таймаут: выбранное фото убираем, а сообщение "анализирую"
+    # перезаписываем в главное меню с причиной. Новое сообщение не отправляем.
+    if selected_photo_message_id:
+        try:
+            await bot.delete_message(chat_id, selected_photo_message_id)
+        except Exception:
+            pass
+
+    error_text = None
+    if result_payload:
+        error_text = (
+            result_payload.get("text")
+            or result_payload.get("message")
+            or result_payload.get("error")
+        )
+    if not error_text:
+        error_text = "Время ожидания результата истекло. Попробуйте выбрать фото ещё раз."
+
+    menu_text = _fashion_failed_menu_text(mode, error_text)
+
+    if processing_message_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=processing_message_id,
+                text=menu_text,
+                parse_mode="HTML",
+                reply_markup=start_keyboard(is_registered=True),
+            )
+            return
+        except Exception as e:
+            logger.warning("Не удалось перезаписать processing_message_id=%s ошибкой: %s", processing_message_id, e)
+
+    await bot.send_message(
+        chat_id,
+        menu_text,
+        parse_mode="HTML",
+        reply_markup=start_keyboard(is_registered=True),
+    )
 
 
 # ============================================================
@@ -2904,6 +3514,17 @@ async def unexpected_message_handler(message: Message, state: FSMContext):
         keyboard = confirm_unlink_telegram_keyboard()
     elif current_keyboard == "confirm_delete_account":
         keyboard = confirm_delete_account_keyboard()
+    elif current_keyboard == "fashion_action":
+        mode = data.get("fashion_mode", "rec")
+        total_photos = data.get("total_photos", 0)
+        keyboard = fashion_action_menu_keyboard(mode, total_photos)
+    elif current_keyboard == "fashion_model":
+        mode = data.get("fashion_mode", "rec")
+        photo_id = data.get("selected_fashion_photo_id", "")
+        keyboard = choose_model_keyboard(mode, photo_id) if photo_id else back_keyboard()
+    elif current_keyboard == "fashion_result":
+        mode = data.get("fashion_mode", "rec")
+        keyboard = fashion_action_result_keyboard(mode)
     else:
         keyboard = start_keyboard(is_registered=is_registered)
 

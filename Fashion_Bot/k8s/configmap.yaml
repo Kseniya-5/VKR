@@ -5,6 +5,6 @@ metadata:
 data:
   POSTGRES_DB: "fashion_db"
   POSTGRES_USER: "fashion_user"
-  DATABASE_URL: "postgresql://fashion_user:fashion_pass@db:5432/fashion_db"
+  DATABASE_URL: "postgresql+asyncpg://fashion_user:fashion_pass@db:5432/fashion_db"
   REDIS_URL: "redis://redis:6379/0"
   DEBUG: "False"

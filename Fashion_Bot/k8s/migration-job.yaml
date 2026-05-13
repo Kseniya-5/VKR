@@ -19,18 +19,26 @@ spec:
             - /bin/sh
             - -c
             - |
+              set -e
+
               echo "Ожидание запуска базы данных..."
-              until pg_isready -h db -p 5432 -U $POSTGRES_USER; do
+              until PGPASSWORD="$POSTGRES_PASSWORD" pg_isready -h db -p 5432 -U "$POSTGRES_USER"; do
                 sleep 2
               done
+
               echo "✅ База готова! Выполняем миграцию..."
-              psql -h db -U $POSTGRES_USER -d $POSTGRES_DB -f /scripts/init.sql
-              echo "Миграция успешно завершена!"
+              PGPASSWORD="$POSTGRES_PASSWORD" psql \
+                -h db \
+                -U "$POSTGRES_USER" \
+                -d "$POSTGRES_DB" \
+                -f /scripts/001_initial.sql
+
+              echo "✅ Миграция успешно завершена!"
           volumeMounts:
             - name: script-volume
-              mountPath: /scripts/init.sql
-              subPath: init.sql
+              mountPath: /scripts/001_initial.sql
+              subPath: 001_initial.sql
       volumes:
         - name: script-volume
           configMap:
-            name: db-init-script
+            name: db-init-configmap

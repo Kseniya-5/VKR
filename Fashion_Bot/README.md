@@ -166,80 +166,81 @@ Fashion_Bot/
 │
 ├── app/
 │   ├── api/
-│   │   ├── main.py                  # FastAPI-приложение
+│   │   ├── main.py             # Точка входа FastAPI-приложения, подключение роутеров и health-check 
 │   │   ├── routes/
-│   │   │   ├── auth.py              # Регистрация, вход, токены, связь аккаунтов
-│   │   │   ├── fashion.py           # Рекомендации, образы, ML-задачи
-│   │   │   ├── photos.py            # Загрузка, просмотр и удаление фото
-│   │   │   └── users.py             # Профиль, настройки, удаление аккаунта
-│   │   └── schemas/                 # Pydantic-схемы
-│   │
+│   │   │   ├── auth.py               # Регистрация, вход, JWT, одноразовые ссылки, связь Telegram и web
+│   │   │   ├── fashion.py            # API для рекомендаций, сборки образов, истории и фоновых ML-задач
+│   │   │   ├── photos.py             # Загрузка, получение, выдача файла и удаление фотографий
+│   │   │   └── users.py              # Профиль пользователя, настройки, смена данных и удаление аккаунта
+│   │   └── schemas/
+│   │       ├── auth.py               # Pydantic-схемы для регистрации, входа, токенов и привязки аккаунтов
+│   │       └── users.py              # Pydantic-схемы профиля пользователя и обновления данных
 │   ├── bot/
-│   │   ├── main.py                  # Запуск Telegram-бота
 │   │   ├── handlers/
-│   │   │   ├── auth.py              # Регистрация и связь аккаунтов
-│   │   │   └── base.py              # Основные сценарии бота
-│   │   ├── keyboards.py             # Inline-кнопки
-│   │   ├── middlewares.py           # Middleware
-│   │   └── states.py                # FSM-состояния
-│   │
+│   │   │   ├── auth.py               # Сценарии регистрации, входа и связи Telegram с web-аккаунтом
+│   │   │   └── base.py               # Основные сценарии Telegram-бота: меню, фото, рекомендации, образы
+│   │   ├── keyboards.py          # Inline-клавиатуры Telegram-бота
+│   │   ├── main.py               # Точка входа Telegram-бота, запуск polling
+│   │   ├── middlewares.py        # Middleware для обработки сообщений, callback и служебной логики
+│   │   └── states.py             # FSM-состояния для многошаговых сценариев бота
 │   ├── core/
-│   │   ├── config.py                # Настройки приложения
-│   │   ├── deps.py                  # Зависимости FastAPI
-│   │   └── security.py              # JWT, пароли, безопасность
-│   │
+│   │   ├── config.py             # Конфигурация приложения и чтение переменных окружения  
+│   │   ├── deps.py               # FastAPI-зависимости: текущий пользователь, сессия БД, авторизация
+│   │   └── security.py           # JWT-токены, хеширование паролей, security-утилиты
 │   ├── db/
-│   │   ├── models.py                # SQLAlchemy-модели
-│   │   └── session.py               # Подключение к БД
-│   │
+│   │   ├── models.py             # SQLAlchemy-модели таблиц PostgreSQL
+│   │   └── session.py            # Подключение к PostgreSQL и создание async-сессий
 │   ├── ml/
-│   │   ├── fashion_attributes.py    # Извлечение CV-признаков
-│   │   ├── recommendation_engine.py # Генерация рекомендаций
-│   │   └── vision_advisor.py        # Интеграция с LLM/Vision API
-│   │
+│   │   ├── fashion_attributes.py # Извлечение атрибутов одежды CV-моделями: item, color, style, season
+│   │   ├── recommendation_engine.py # Формирование рекомендаций и образов на основе извлечённых признаков
+│   │   └── vision_advisor.py     # Интеграция с Vision API / Open WebUI / llama3.2-vision
 │   ├── services/
-│   │   └── user_deletion.py         # Логика удаления пользователя и данных
-│   │
-│   └── worker/
-│       ├── celery_app.py            # Celery-приложение
-│       └── tasks.py                 # Фоновые задачи
-│
+│   │   └── user_deletion.py      # Логика удаления пользователя, очистки связанных данных и файлов
+│   ├── worker/
+│   │   ├── celery_app.py         # Инициализация Celery-приложения
+│   │   └── tasks.py              # Фоновые задачи: ML-анализ, рекомендации, образы, очистка данных
+│   └── main.py                   # Дополнительная точка входа приложения / служебный запуск
 ├── k8s/
-│   ├── api.yaml                     # Deployment/Service для FastAPI
-│   ├── bot.yaml                     # Deployment для Telegram-бота
-│   ├── worker.yaml                  # Deployment для Celery worker
-│   ├── nginx.yaml                   # Deployment/Service для Nginx
-│   ├── postgres.yaml                # StatefulSet/Service PostgreSQL
-│   ├── redis.yaml                   # Deployment/Service Redis
-│   ├── media-pvc.yaml               # PersistentVolumeClaim для фото
-│   ├── migration-job.yaml           # Job для применения миграции
-│   ├── configmap.yaml               # Неконфиденциальные настройки
-│   ├── secret.yaml                  # Шаблон Secret
-│   └── cloudflared.yaml             # Cloudflare Tunnel connector
-│
+│   ├── api.yaml               # Deployment и Service для FastAPI backend
+│   ├── bot.yaml               # Deployment для Telegram-бота
+│   ├── cloudflared.yaml       # Deployment Cloudflare Tunnel connector для публичного домена
+│   ├── configmap.yaml         # Неконфиденциальные переменные окружения Kubernetes
+│   ├── db-init-configmap.yaml # ConfigMap со SQL-миграцией / скриптом инициализации БД 
+│   ├── media-pvc.yaml         # PersistentVolumeClaim для хранения пользовательских фотографий
+│   ├── migration-job.yaml     # Kubernetes Job для применения SQL-миграции
+│   ├── nginx.yaml             # Deployment и Service для Nginx/frontend
+│   ├── postgres.yaml          # StatefulSet и Service для PostgreSQL
+│   ├── redis.yaml             # Deployment и Service для Redis
+│   ├── secret.yaml            # Шаблон Kubernetes Secret
+│   └── worker.yaml            # Deployment для Celery worker
 ├── migrations/
-│   └── 001_initial.sql              # Единая SQL-миграция БД
-│
+│   └── 001_initial.sql        # Единая SQL-миграция: таблицы пользователей, аккаунтов, фото, задач и истории
 ├── nginx/
-│   ├── Dockerfile                   # Dockerfile для frontend/Nginx
-│   ├── nginx.conf                   # Reverse proxy и статика
-│   ├── index.html                   # Страница входа/регистрации
-│   ├── dashboard.html               # Панель управления
-│   ├── photos.html                  # Мои фото
-│   ├── profile.html                 # Профиль
-│   ├── settings.html                # Настройки
-│   ├── recommendations.html         # История рекомендаций
-│   ├── outfits.html                 # История образов
-│   └── assets/                      # CSS/JS/статические ресурсы
-│
-├── deploy.sh                        # Сборка и деплой проекта в Kubernetes
-├── stop.sh                          # Остановка и очистка ресурсов проекта
-├── Dockerfile                       # Dockerfile для backend/bot/worker
-├── pyproject.toml                   # Зависимости Python-проекта
-├── uv.lock                          # Зафиксированные версии зависимостей
-└── README.md
+│   ├── Dockerfile             # Dockerfile для сборки frontend/Nginx-образа
+│   ├── nginx.conf             # Конфигурация Nginx: отдача HTML и proxy /api на backend
+│   ├── assets/
+│   │   └── js/
+│   │       └── app.js                  # Общая frontend-логика: API-запросы, JWT, UI-утилиты
+│   ├── dashboard.html         # Главная панель управления web-версии
+│   ├── from-telegram.html     # Страница первого входа в web через одноразовую ссылку из Telegram
+│   ├── index.html             # Стартовая страница, вход и регистрация  
+│   ├── link-existing-web.html # Страница объединения Telegram-профиля с существующим web-аккаунтом
+│   ├── link-telegram.html     # Страница генерации кода/ссылки для привязки Telegram
+│   ├── login-token.html       # Страница входа по одноразовому токену
+│   ├── outfits.html           # История собранных образов
+│   ├── photos.html            # Галерея пользовательских фотографий
+│   ├── profile.html           # Профиль пользователя и изменение личных данных
+│   ├── recommendations.html   # История рекомендаций
+│   └── settings.html          # Настройки аккаунта, отвязка Telegram и удаление аккаунта
+├── .dockerignore         # Исключения из Docker build context
+├── .gitignore            # Исключения из Git
+├── Dockerfile            # Dockerfile backend-образа для API, Telegram-бота и worker
+├── deploy.sh             # Скрипт жёсткой пересборки, загрузки образов в Minikube и деплоя в Kubernetes
+├── stop.sh               # Скрипт остановки/очистки Kubernetes-ресурсов проекта
+├── pyproject.toml        # Зависимости и метаданные Python-проекта
+├── uv.lock               # Зафиксированные версии зависимостей uv
+└── README.md             # Документация проекта
 ```
-
 ***
 
 ### 1. Запуск проекта через Kubernetes (Полное Production окружение)
